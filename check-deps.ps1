@@ -1,9 +1,8 @@
 ﻿# DSH 浏览器 - 环境自检（分享给他人 / 换机后先跑这个）
-# 只读检查，不启动服务、不修改任何配置。
+# 只读检查：不启动服务、不修改配置、不创建目录。
 $ErrorActionPreference = 'SilentlyContinue'
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ok = 0; $warn = 0; $fail = 0
-$lines = New-Object System.Collections.Generic.List[string]
 function Add-Result {
     param([string]$Name, [string]$Status, [string]$Detail, [string]$Fix = '')
     switch ($Status) {
@@ -42,17 +41,14 @@ if ($psv.Major -ge 5) { Add-Result 'Windows PowerShell' 'PASS' ("版本 {0}（Wi
 else { Add-Result 'Windows PowerShell' 'FAIL' ("版本 {0} 过低" -f $psv) '升级到 Windows PowerShell 5.1+（Win10/11 默认自带）' }
 
 # ---- 2. 项目文件 ----
-foreach ($f in @('launcher.ps1', 'config.ini', 'watchdog.exe', 'DSH-favicon.ico')) {
+foreach ($f in @('launcher.ps1', 'config.ini', 'watchdog.exe', 'DSH-favicon.ico', 'README.md', 'LICENSE')) {
     if (Test-Path -LiteralPath (Join-Path $root $f)) { Add-Result ("项目文件 {0}" -f $f) 'PASS' '' }
     else { Add-Result ("项目文件 {0}" -f $f) 'FAIL' '文件缺失，请重新解压完整的分享包' '重新解压分享包' }
 }
 
 # ---- 3. 浏览器 ----
-$edgeCandidates = @(
-    (Join-Path ${env:ProgramFiles(x86)} 'Microsoft\Edge\Application\msedge.exe'),
-    (Join-Path $env:ProgramFiles 'Microsoft\Edge\Application\msedge.exe'),
-    (Join-Path $env:LOCALAPPDATA 'Microsoft\Edge\Application\msedge.exe')
-)
+$edgeRoots = @(${env:ProgramFiles(x86)}, $env:ProgramFiles, $env:LOCALAPPDATA) | Where-Object { $_ }
+$edgeCandidates = foreach ($r in $edgeRoots) { Join-Path $r 'Microsoft\Edge\Application\msedge.exe' }
 $edge = $edgeCandidates | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -First 1
 $browserCfg = $cfg['BROWSER_PATH']
 if ($browserCfg) {
@@ -65,25 +61,45 @@ if ($edge) { Add-Result 'Microsoft Edge（默认浏览器）' 'PASS' $edge }
 elseif (-not $browserCfg) { Add-Result 'Microsoft Edge' 'FAIL' '未找到 Edge' '安装 Windows 自带的 Microsoft Edge，或在本工具 config.ini 设置 BROWSER_PATH' }
 
 # ---- 4. Node.js ----
-$nodeCmd = Get-Command node.exe -ErrorAction SilentlyContinue
-if ($nodeCmd) {
-    $nodeVer = & $nodeCmd.Source -v 2>$null
-    Add-Result 'Node.js' 'PASS' ("{0}（{1}）" -f $nodeCmd.Source, $nodeVer)
-} else {
-    Add-Result 'Node.js' 'FAIL' 'PATH 里找不到 node.exe' '安装 Node.js（https://nodejs.org）并加入 PATH，或在 config.ini 设置 NODE_PATH'
+$nodeCfg = $cfg['NODE_PATH']
+$nodeFound = ''
+if ($nodeCfg) {
+    $nodeResolved = $nodeCfg
+    if (-not [System.IO.Path]::IsPathRooted($nodeResolved)) { $nodeResolved = Join-Path $root $nodeResolved }
+    if (Test-Path -LiteralPath $nodeResolved) { $nodeFound = $nodeResolved; Add-Result 'Node.js' 'PASS' ("{0}（来自 config.ini NODE_PATH）" -f $nodeResolved) }
+    else { Add-Result 'Node.js' 'FAIL' ('config.ini 的 NODE_PATH 不存在：' + $nodeResolved) '修正 NODE_PATH，或留空改用 PATH 中的 node.exe' }
+}
+if (-not $nodeFound) {
+    $nodeCmd = Get-Command node.exe -ErrorAction SilentlyContinue
+    if ($nodeCmd) {
+        $nodeVer = & $nodeCmd.Source -v 2>$null
+        Add-Result 'Node.js' 'PASS' ("{0}（{1}）" -f $nodeCmd.Source, $nodeVer)
+    } elseif (-not $nodeCfg) {
+        Add-Result 'Node.js' 'FAIL' 'PATH 里找不到 node.exe' '安装 Node.js（https://nodejs.org）并加入 PATH，或在 config.ini 设置 NODE_PATH'
+    }
 }
 
 # ---- 5. dsh CLI ----
-$dshCmd = Join-Path $env:APPDATA 'npm\dsh.cmd'
-$dshFound = $false
-if (Test-Path -LiteralPath $dshCmd) { $dshFound = $true }
-else {
-    $dshOnPath = Get-Command dsh.cmd -ErrorAction SilentlyContinue
-    if (-not $dshOnPath) { $dshOnPath = Get-Command dsh -ErrorAction SilentlyContinue }
-    if ($dshOnPath) { $dshCmd = $dshOnPath.Source; $dshFound = $true }
+$dshCmd = ''
+$dshCfg = $cfg['DSH_CMD']
+if ($dshCfg) {
+    $dshResolved = $dshCfg
+    if (-not [System.IO.Path]::IsPathRooted($dshResolved)) { $dshResolved = Join-Path $root $dshResolved }
+    if (Test-Path -LiteralPath $dshResolved) { $dshCmd = $dshResolved; Add-Result 'DSH CLI (dsh)' 'PASS' ("{0}（来自 config.ini DSH_CMD）" -f $dshResolved) }
+    else { Add-Result 'DSH CLI (dsh)' 'FAIL' ('config.ini 的 DSH_CMD 不存在：' + $dshResolved) '修正 DSH_CMD，或留空使用默认 dsh 命令' }
 }
-if ($dshFound) { Add-Result 'DSH CLI (dsh)' 'PASS' $dshCmd }
-else { Add-Result 'DSH CLI (dsh)' 'FAIL' '未找到 dsh 命令' '先安装：npm i -g @deepseek-ai/dsh' }
+if (-not $dshCmd) {
+    $dshCmd = Join-Path $env:APPDATA 'npm\dsh.cmd'
+    $dshFound = $false
+    if (Test-Path -LiteralPath $dshCmd) { $dshFound = $true }
+    else {
+        $dshOnPath = Get-Command dsh.cmd -ErrorAction SilentlyContinue
+        if (-not $dshOnPath) { $dshOnPath = Get-Command dsh -ErrorAction SilentlyContinue }
+        if ($dshOnPath) { $dshCmd = $dshOnPath.Source; $dshFound = $true }
+    }
+    if ($dshFound) { Add-Result 'DSH CLI (dsh)' 'PASS' $dshCmd }
+    elseif (-not $dshCfg) { Add-Result 'DSH CLI (dsh)' 'FAIL' '未找到 dsh 命令' '先安装：npm i -g @deepseek-ai/dsh' }
+}
 
 # ---- 6. 一键启动脚本 start-dsh-web.mjs ----
 $launcherScript = ''
@@ -104,23 +120,32 @@ if ($foundScript) {
 
 # ---- 7. 工作目录 ----
 $workspace = $cfg['WORKSPACE']
-if (-not $workspace) { $workspace = Join-Path $env:USERPROFILE 'Documents\deepseek-harness\default-workspace' }
-if (Test-Path -LiteralPath $workspace) { Add-Result 'DSH 工作目录' 'PASS' $workspace }
-else {
-    try {
-        New-Item -ItemType Directory -Force -Path $workspace | Out-Null
-        Add-Result 'DSH 工作目录' 'PASS' ($workspace + '（已自动创建）')
-    } catch {
-        Add-Result 'DSH 工作目录' 'FAIL' ($workspace + '（无法创建）') '在 config.ini 的 WORKSPACE 里指定一个可写目录'
-    }
+if ($workspace) {
+    if (-not [System.IO.Path]::IsPathRooted($workspace)) { $workspace = Join-Path $root $workspace }
+} else {
+    $workspace = Join-Path $env:USERPROFILE 'Documents\deepseek-harness\default-workspace'
 }
+if (Test-Path -LiteralPath $workspace) { Add-Result 'DSH 工作目录' 'PASS' $workspace }
+else { Add-Result 'DSH 工作目录' 'WARN' ($workspace + '（当前不存在）') '打开 DSH 浏览器时会自动创建；也可在 config.ini 的 WORKSPACE 指定目录' }
 
 # ---- 8. 端口状态 ----
 $port = 3080
 if ($cfg['PORT'] -match '^\d+$') { $port = [int]$cfg['PORT'] }
 $listening = @(& netstat.exe -ano 2>$null | Select-String 'LISTENING' | Select-String (':{0}\s' -f $port))
-if ($listening.Count -eq 0) { Add-Result ("端口 {0}" -f $port) 'PASS' '空闲（打开 DSH 浏览器时会自动启动服务）' }
-else { Add-Result ("端口 {0}" -f $port) 'PASS' '已有服务在运行（会直接复用）' }
+if ($listening.Count -eq 0) {
+    Add-Result ("端口 {0}" -f $port) 'PASS' '空闲（打开 DSH 浏览器时会自动启动服务）'
+} else {
+    $isDsh = $false
+    try {
+        $resp = Invoke-WebRequest -Uri ("http://127.0.0.1:{0}/" -f $port) -UseBasicParsing -MaximumRedirection 0 -TimeoutSec 4
+        if ($resp.Content -match 'dsh|DeepSeek') { $isDsh = $true }
+    } catch {
+        $r = $_.Exception.Response
+        if ($r -and [int]$r.StatusCode -eq 401) { $isDsh = $true }
+    }
+    if ($isDsh) { Add-Result ("端口 {0}" -f $port) 'PASS' '已有 DSH 服务在运行（会直接复用）' }
+    else { Add-Result ("端口 {0}" -f $port) 'WARN' '端口被其它程序占用（不是 DSH 服务）' '关闭占用程序，或在 config.ini 修改 PORT' }
+}
 
 # ---- 9. 快捷方式 ----
 $ws = New-Object -ComObject WScript.Shell
@@ -130,7 +155,8 @@ $lnkProblems = @()
 foreach ($lnk in @($desktopLnk, $menuLnk)) {
     if (Test-Path -LiteralPath $lnk) {
         $sh = $ws.CreateShortcut($lnk)
-        if ($sh.Arguments -notlike ('*-File "' + (Join-Path $root 'launcher.ps1') + '"*')) { $lnkProblems += $lnk }
+        $expectedArg = '*-File "' + (Join-Path $root 'launcher.ps1') + '"*'
+        if (-not ($sh.Arguments -like $expectedArg)) { $lnkProblems += $lnk }
     } else { $lnkProblems += $lnk }
 }
 if ($lnkProblems.Count -eq 0) { Add-Result '桌面 / 开始菜单快捷方式' 'PASS' '已存在且指向本目录' }
@@ -154,7 +180,11 @@ else { Add-Result '运行期数据（分享前检查）' 'WARN' ('含个人数�
 $dshHome = $env:DSH_HOME
 if ([string]::IsNullOrWhiteSpace($dshHome)) { $dshHome = Join-Path $env:USERPROFILE '.dsh' }
 $reaConfig = Join-Path $dshHome 'cordis.patch.yml'
-if (Test-Path -LiteralPath $reaConfig) { Add-Result 'REA MCP（可选）' 'PASS' '已启用（可用「切换 REA MCP.cmd」关闭以省内存）' }
+$reaDisabled = $reaConfig + '.disabled'
+if ((Test-Path -LiteralPath $reaConfig) -and (Test-Path -LiteralPath $reaDisabled)) {
+    Add-Result 'REA MCP（可选）' 'WARN' '配置文件 .yml 与 .disabled 同时存在（状态冲突）' '手动只保留一个；或用「切换 REA MCP.cmd」按提示处理'
+}
+elseif (Test-Path -LiteralPath $reaConfig) { Add-Result 'REA MCP（可选）' 'PASS' '已启用（可用「切换 REA MCP.cmd」关闭以省内存）' }
 else { Add-Result 'REA MCP（可选）' 'WARN' '未启用（不影响 DSH 浏览器使用）' '' }
 
 Write-Host ''
