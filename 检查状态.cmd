@@ -1,0 +1,6 @@
+@echo off
+chcp 65001 >nul
+setlocal
+set "PS=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
+"%PS%" -NoProfile -ExecutionPolicy Bypass -File "%~dp0launcher.ps1" -Check
+pause

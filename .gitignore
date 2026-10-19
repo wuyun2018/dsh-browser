@@ -1,0 +1,25 @@
+# 运行期 / 个人数据（切勿提交）
+profile/
+logs/
+state/
+
+# 本机快捷方式与旧个人图标
+*.lnk
+DSH-custom.ico
+
+# 打包/日志/临时文件
+*.zip
+*.log
+*.tmp
+*.bak
+*~
+
+# 本机文档（仓库使用 README.md）
+README.txt
+
+# 编辑器 / 系统
+.vs/
+.idea/
+.vscode/
+Thumbs.db
+desktop.ini
