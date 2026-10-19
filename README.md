@@ -5,7 +5,7 @@
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%20%2F%2011-0078D4?logo=windows)
 ![PowerShell](https://img.shields.io/badge/PowerShell-5.1%2B-5391FE?logo=powershell)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Size](https://img.shields.io/badge/package-~100%20KB-brightgreen)
+![Size](https://img.shields.io/badge/package-~80%20KB-brightgreen)
 
 简体中文 | [English Summary](#english-summary)
 
@@ -53,7 +53,7 @@
 | 🔁 自动服务生命周期 | 打开时自动启动/复用 DSH 服务；关闭窗口时由 watchdog 同步停止服务（可配置保留） |
 | 🔒 独立配置 | 独立 `profile` 目录，不共享日常浏览器的 Cookie/扩展/历史 |
 | 🎯 自动令牌 | 自动读取本次 DSH 启动的带令牌 URL，不会遇到 401 |
-| 🪟 重复打开不叠加 | 再次双击只把已有窗口切到前台，不会重复开窗占内存 |
+| 🪟 重复打开不叠加 | 再次双击只把已有窗口切到前台，不会重复开窗占内存（若服务被手动停止后重开，请先关闭旧窗口） |
 | 🧹 隐私清理 | 一键清理 profile / logs / state / 令牌文件（分享前必备） |
 | 🛠️ 快捷方式修复 | 移动目录后一键重建桌面/开始菜单/项目内快捷方式 |
 | 🩺 环境自检 | 检查 PowerShell / Edge / Node.js / dsh / 启动脚本 / 工作目录等 |
@@ -124,7 +124,7 @@
 4. **双击 `修复快捷方式.cmd`**（可选）：创建桌面/开始菜单快捷方式。
 5. **双击 `DSH 浏览器.cmd`** 或桌面快捷方式开始使用。
 
-首次打开会自动启动 DSH 服务（隐藏窗口，约 5–15 秒），之后秒开。
+首次打开会自动启动 DSH 服务（隐藏窗口，约 5–15 秒）；若保持服务运行（`STOP_SERVER_ON_CLOSE=0`），再次打开秒开。
 
 > **从 GitHub 下载 ZIP 的用户请注意**：Windows 会给下载的压缩包里的文件加上"来自 Internet"标记（MOTW），首次运行 `.cmd` 或 `watchdog.exe` 时可能弹出"打开文件 - 安全警告"。选择"打开"即可；也可以右键 ZIP → 属性 → 勾选"解除锁定"后再解压。`launcher.ps1` 启动时也会自动尝试解除本目录文件的锁定标记，并使用不会触发该提示的方式启动 `watchdog.exe`。
 
@@ -204,7 +204,7 @@ dsh-browser/
 说明后台 DSH 服务不是本工具启动的，或令牌已过期。先双击「停止 DSH 服务.cmd」停掉旧服务，再重新打开「DSH 浏览器」。
 
 **Q2：双击没反应？**
-用「DSH 浏览器（调试）.cmd」启动查看错误；日志在 `logs\launcher.log`，DSH 服务错误日志在 `%TEMP%\dsh-browser\`。
+用「DSH 浏览器（调试）.cmd」启动查看错误；启动日志在 `logs\launcher.log`。若 DSH 服务本身启动失败，请直接运行 `dsh-launcher` 目录下的「启动 DSH Web.cmd」查看完整错误（本工具为避免令牌落盘，丢弃了服务 stdout）。
 
 **Q3：任务管理器里为什么显示 `msedge.exe`？**
 本项目复用系统 Edge 的 Chromium 内核，不是独立浏览器。专用窗口使用独立 `--user-data-dir`，与你日常 Edge 互不影响；可查看命令行中的 `--app=...` 与 `--user-data-dir=...\profile` 区分。
@@ -263,7 +263,7 @@ REA 是一套可选的反向工程工具服务（二进制/.NET/Electron/APK/固
 
 - **重新编译 watchdog**（Windows 自带 .NET Framework 4.x）：
   ```bat
-  %WINDIR%\Microsoft.NET\Framework64\v4.0.30319\csc.exe /nologo /target:winexe ^
+  %WINDIR%\Microsoft.NET\Framework64\v4.0.30319\csc.exe /nologo /target:winexe /optimize+ /codepage:65001 ^
     /out:watchdog.exe /win32icon:DSH.ico watchdog.cs
   ```
 - **文件编码约定**：
