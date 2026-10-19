@@ -16,14 +16,24 @@ if ([string]::IsNullOrWhiteSpace($ConfigPath)) {
 $disabledPath = $ConfigPath + '.disabled'
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 
-# 读取 DSH 浏览器端口（默认 3080）
-$port = 3080
+# 读取 DSH 浏览器配置（端口 / profile / 浏览器路径）
+$cfg = @{}
 $browserConfig = Join-Path $root 'config.ini'
 if (Test-Path -LiteralPath $browserConfig) {
     foreach ($raw in Get-Content -LiteralPath $browserConfig -Encoding UTF8) {
-        if ($raw.Trim() -match '^PORT\s*=\s*(\d+)$') { $port = [int]$matches[1] }
+        $line = $raw.Trim()
+        if ($line -eq '' -or $line.StartsWith('#') -or $line.StartsWith(';')) { continue }
+        $i = $line.IndexOf('=')
+        if ($i -gt 0) { $cfg[$line.Substring(0, $i).Trim()] = $line.Substring($i + 1).Trim() }
     }
 }
+$port = 3080
+if ($cfg['PORT'] -match '^\d+$') { $port = [int]$cfg['PORT'] }
+$profileDir = $cfg['PROFILE_DIR']
+if ([string]::IsNullOrWhiteSpace($profileDir)) { $profileDir = Join-Path $root 'profile' }
+if (-not [System.IO.Path]::IsPathRooted($profileDir)) { $profileDir = Join-Path $root $profileDir }
+$browserName = 'msedge.exe'
+if ($cfg['BROWSER_PATH']) { $browserName = [System.IO.Path]::GetFileName($cfg['BROWSER_PATH']) }
 
 function Test-PortListening {
     param([int]$Port)
@@ -52,8 +62,10 @@ public class ReaToggleWin32 {
 }
 "@
     }
-    Get-CimInstance Win32_Process -Filter "Name='msedge.exe'" -ErrorAction SilentlyContinue |
-        Where-Object { $_.CommandLine -and $_.CommandLine -like '*dsh-browser\profile*' } |
+    # 不限定进程名：兼容 Edge/Chrome 以及 BROWSER_PATH 指定的任意 Chromium 分支；
+    # 按 config.ini 的 PROFILE_DIR 命令行匹配，目录改名/自定义 profile 也能找到窗口。
+    Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+        Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -and $_.CommandLine.Contains($profileDir) } |
         ForEach-Object {
             $p = Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue
             if ($p -and $p.MainWindowHandle -ne [IntPtr]::Zero) { [pscustomobject]@{ PID = $_.ProcessId; Handle = $p.MainWindowHandle } }
@@ -81,15 +93,24 @@ function Restart-DshService {
             $serverPid = 0
             [int]::TryParse((Get-Content -LiteralPath $pidFile -Raw).Trim(), [ref]$serverPid) | Out-Null
             if ($serverPid -gt 0) { & taskkill.exe /PID $serverPid /T /F 2>$null | Out-Null }
-            Start-Sleep -Seconds 2
+            $waitDeadline = (Get-Date).AddSeconds(8)
+            while ((Get-Date) -lt $waitDeadline) {
+                Start-Sleep -Milliseconds 500
+                if (-not (Test-PortListening $port)) { $down = $true; break }
+            }
         }
+    }
+    if (-not $down) {
+        Write-Host '未能停止 DSH 服务（可能不是本工具启动，或 STOP_SERVER_ON_CLOSE=0）。' -ForegroundColor Yellow
+        Write-Host '配置已切换，但需要重启服务才生效：请手动关闭正在运行的 DSH 服务后重新打开「DSH 浏览器」。' -ForegroundColor Yellow
+        return
     }
     $launcher = Join-Path $root 'launcher.ps1'
     if (Test-Path -LiteralPath $launcher) {
         $psExe = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
         $argLine = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $launcher + '"'
         Start-Process -FilePath $psExe -ArgumentList $argLine -WindowStyle Hidden | Out-Null
-        Write-Host '已重新打开 DSH 浏览器窗口（约 5~15 秒），新配置生效。'
+        Write-Host '已请求重新打开 DSH 浏览器窗口（约 5~15 秒），新配置生效。'
     } else {
         Write-Host '未找到 launcher.ps1，请手动双击「DSH 浏览器」重新打开。' -ForegroundColor Yellow
     }
