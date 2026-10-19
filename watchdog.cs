@@ -1,6 +1,7 @@
-// DSH 浏览器 - 关闭监视器
+﻿// DSH 浏览器 - 关闭监视器
 // 等待 DSH 浏览器窗口进程退出，然后停止 DSH 服务（Node.js）。
-// 编译：csc.exe /nologo /target:winexe /out:watchdog.exe /win32icon:DSH.ico watchdog.cs
+// 编译（Windows 自带 .NET Framework 4.x）：
+//   csc.exe /nologo /target:winexe /optimize+ /codepage:65001 /out:watchdog.exe /win32icon:DSH.ico watchdog.cs
 using System;
 using System.Diagnostics;
 using System.IO;
@@ -52,64 +53,109 @@ internal static class Program
         }
         Log("浏览器已退出，准备停止 DSH 服务（端口 " + port + "）");
         Thread.Sleep(1500);
-        WriteFlag(true);
+        WriteFlag(true, browserPid);
         try
         {
-        // 2) 找到要停止的服务进程
-        int target = -1;
-        if (serverPid > 0)
-        {
-            try { Process.GetProcessById(serverPid); target = serverPid; }
-            catch { target = -1; }
-        }
-        if (target <= 0)
-        {
-            target = FindListenerPid(port);
-        }
-        if (target <= 0)
-        {
-            Log("没有找到端口 " + port + " 上的服务进程，可能已经停止");
-            return 0;
-        }
-
-        // 3) 停止服务进程树，并确认端口释放
-        Log("正在停止 DSH 服务进程树（PID " + target + "）");
-        Run("taskkill.exe", "/PID " + target + " /T /F");
-        for (int i = 0; i < 20; i++)
-        {
-            Thread.Sleep(250);
-            if (FindListenerPid(port) <= 0)
+            // 2) 找到要停止的服务进程，并校验它确实是 node（避免 PID 复用/端口被占用时误杀）
+            int target = -1;
+            if (serverPid > 0)
             {
-                Log("DSH 服务已停止，端口 " + port + " 已释放");
+                if (IsNodeProcess(serverPid)) { target = serverPid; }
+                else { Log("记录的服务 PID " + serverPid + " 已不是 node 进程（可能被复用），改为按端口查找"); }
+            }
+            if (target <= 0) { target = FindListenerPid(port); }
+            if (target <= 0)
+            {
+                Log("没有找到端口 " + port + " 上的服务进程，可能已经停止");
                 return 0;
             }
-        }
-        // 兜底：再按端口找一次并强杀
-        int again = FindListenerPid(port);
-        if (again > 0)
-        {
-            Log("服务仍在运行，再次停止 PID " + again);
-            Run("taskkill.exe", "/PID " + again + " /T /F");
-        }
-        Thread.Sleep(500);
-        if (FindListenerPid(port) <= 0) Log("DSH 服务已停止，端口 " + port + " 已释放");
-        else Log("警告：端口 " + port + " 仍在监听，请手动检查");
-        return 0;
+            if (!IsNodeProcess(target))
+            {
+                Log("端口 " + port + " 上的进程 PID " + target + " 不是 node/DSH 服务，已跳过停止（避免误杀）");
+                return 0;
+            }
+
+            // 3) 停止服务进程树，并确认端口释放
+            Log("正在停止 DSH 服务进程树（PID " + target + "）");
+            KillTree(target);
+            for (int i = 0; i < 32; i++)
+            {
+                Thread.Sleep(250);
+                int still = FindListenerPid(port);
+                if (still <= 0)
+                {
+                    Log("DSH 服务已停止，端口 " + port + " 已释放");
+                    return 0;
+                }
+                if (still != target && !IsNodeProcess(still))
+                {
+                    Log("端口 " + port + " 已被其它进程占用，停止继续操作");
+                    return 0;
+                }
+            }
+            // 兜底：再按端口找一次，仅当仍是 node 进程才强杀
+            int again = FindListenerPid(port);
+            if (again > 0 && IsNodeProcess(again))
+            {
+                Log("服务仍在运行，再次停止 PID " + again);
+                KillTree(again);
+            }
+            Thread.Sleep(800);
+            if (FindListenerPid(port) <= 0) { Log("DSH 服务已停止，端口 " + port + " 已释放"); }
+            else { Log("警告：端口 " + port + " 仍在监听，请手动检查"); }
+            return 0;
         }
         finally
         {
-            WriteFlag(false);
+            WriteFlag(false, 0);
         }
     }
 
-    private static void WriteFlag(bool create)
+    private static bool IsNodeProcess(int pid)
+    {
+        try
+        {
+            using (Process p = Process.GetProcessById(pid))
+            {
+                return string.Equals(p.ProcessName, "node", StringComparison.OrdinalIgnoreCase);
+            }
+        }
+        catch { return false; }
+    }
+
+    // 先托管 Kill（不依赖外部 taskkill，避免在无控制台/Job 环境下挂起），再用 taskkill /T 兜底清理子进程树
+    private static void KillTree(int pid)
+    {
+        try
+        {
+            using (Process p = Process.GetProcessById(pid))
+            {
+                try { p.Kill(); } catch { }
+                try { p.WaitForExit(5000); } catch { }
+            }
+        }
+        catch { }
+        try
+        {
+            var psi = new ProcessStartInfo("taskkill.exe", "/PID " + pid + " /T /F")
+            {
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            using (Process k = Process.Start(psi)) { try { k.WaitForExit(4000); } catch { } }
+        }
+        catch { }
+    }
+
+    private static void WriteFlag(bool create, int browserPid)
     {
         if (string.IsNullOrEmpty(_flagPath)) return;
         try
         {
             if (create)
             {
-                File.WriteAllText(_flagPath, DateTime.Now.ToString("o"));
+                // 写入“浏览器 PID + 时间戳”，便于 launcher 判断是否陈旧
+                File.WriteAllText(_flagPath, browserPid + Environment.NewLine + DateTime.Now.ToString("o"));
             }
             else if (File.Exists(_flagPath))
             {
@@ -148,19 +194,5 @@ internal static class Program
         }
         catch { }
         return -1;
-    }
-
-    private static void Run(string exe, string arguments)
-    {
-        try
-        {
-            var psi = new ProcessStartInfo(exe, arguments)
-            {
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-            using (Process p = Process.Start(psi)) { p.WaitForExit(8000); }
-        }
-        catch { }
     }
 }
