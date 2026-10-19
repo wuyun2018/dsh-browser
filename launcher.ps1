@@ -13,7 +13,7 @@ $script:Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 if ([string]::IsNullOrWhiteSpace($ConfigPath)) { $ConfigPath = Join-Path $script:Root 'config.ini' }
 
 # 用于把已打开的 DSH 窗口切到前台（避免重复开窗、重复占内存）
-if (-not ('DshBrowser.Win32' -as [type])) {
+if (-not ('DshBrowserWin32' -as [type])) {
     Add-Type @"
 using System;
 using System.Runtime.InteropServices;
@@ -61,7 +61,10 @@ function Show-Message {
 function Quote-Arg {
     param([string]$Value)
     if ($Value -match '[\s"]') {
-        return '"' + ($Value -replace '"', '\"') + '"'
+        $escaped = $Value -replace '"', '\"'
+        # Windows 命令行规则：引号前的连续反斜杠必须加倍，否则结尾反斜杠会转义引号
+        $escaped = [regex]::Replace($escaped, '(\\+)$', '$1$1')
+        return '"' + $escaped + '"'
     }
     return $Value
 }
@@ -100,6 +103,14 @@ function Get-ConfigValue {
     param($Config, [string]$Key, [string]$Default = '')
     if ($Config.ContainsKey($Key) -and -not [string]::IsNullOrWhiteSpace($Config[$Key])) { return $Config[$Key] }
     return $Default
+}
+
+# 相对路径统一按项目根目录解析，避免依赖调用者的当前工作目录
+function Resolve-ProjectPath {
+    param([string]$Path)
+    if ([string]::IsNullOrWhiteSpace($Path)) { return $Path }
+    if ([System.IO.Path]::IsPathRooted($Path)) { return [System.IO.Path]::GetFullPath($Path) }
+    return [System.IO.Path]::GetFullPath((Join-Path $script:Root $Path))
 }
 
 # 解析一键启动脚本 start-dsh-web.mjs 的位置。按以下顺序探测，找不到返回 $null：
@@ -157,9 +168,8 @@ function Get-PortKind {
         return 'dsh'
     } catch {
         $response = $_.Exception.Response
+        # 只有 401 才判定为 DSH（DSH 未带令牌时返回 401）；其它 HTTP 错误按“其它程序占用”处理
         if ($response -and [int]$response.StatusCode -eq 401) { return 'dsh' }
-        # 其它 HTTP 错误也可能来自 DSH（例如 403），继续按可用处理
-        if ($response) { return 'dsh' }
         return 'other'
     }
 }
@@ -171,17 +181,6 @@ function Get-UrlFromState {
     try {
         $raw = (Get-Content -LiteralPath $urlFile -Raw -Encoding UTF8).Trim()
         if ($raw -match ('^https?://127\.0\.0\.1:{0}/\?token=\S+$' -f $Port)) { return $raw }
-    } catch { }
-    return $null
-}
-
-function Get-UrlFromLog {
-    param([string]$LogPath, [int]$Port)
-    if (-not (Test-Path -LiteralPath $LogPath)) { return $null }
-    try {
-        $text = Get-Content -LiteralPath $LogPath -Raw -Encoding UTF8
-        $matches = [regex]::Matches($text, ('https?://127\.0\.0\.1:{0}/\?token=\S+' -f $Port))
-        if ($matches.Count -gt 0) { return $matches[$matches.Count - 1].Value }
     } catch { }
     return $null
 }
@@ -216,6 +215,7 @@ function Start-DshServer {
     # 工作目录：留空时用跨机器的默认位置（%USERPROFILE%\Documents\deepseek-harness\default-workspace），
     # 这样把本工具分享给别人后也能直接用；目录不存在会自动创建。
     $workspace = Get-ConfigValue $Config 'WORKSPACE' ''
+    if ($workspace) { $workspace = Resolve-ProjectPath $workspace }
     if (-not $workspace) { $workspace = Join-Path $env:USERPROFILE 'Documents\deepseek-harness\default-workspace' }
     if (-not (Test-Path -LiteralPath $workspace)) {
         try { New-Item -ItemType Directory -Force -Path $workspace | Out-Null } catch { }
@@ -224,7 +224,7 @@ function Start-DshServer {
     $dshCmd = Get-ConfigValue $Config 'DSH_CMD' ''
     if ($dshCmd) { $dshArgs += @('--dsh', $dshCmd) }
     $stateDir = Get-ConfigValue $Config 'STATE_DIR' ''
-    if ($stateDir) { $dshArgs += @('--state-dir', $stateDir) }
+    if ($stateDir) { $dshArgs += @('--state-dir', (Resolve-ProjectPath $stateDir)) }
 
     $argLine = ($dshArgs | ForEach-Object { Quote-Arg $_ }) -join ' '
     Write-Log "启动 DSH 服务：$node $argLine"
@@ -244,17 +244,16 @@ function Start-DshServer {
         if ($proc.HasExited) {
             $tail = ''
             if (Test-Path -LiteralPath $errLog) { $tail = (Get-Content -LiteralPath $errLog -Tail 20 -Encoding UTF8) -join "`n" }
-            if (-not $tail) { $tail = '没有捕获到错误输出，可尝试直接用原一键启动脚本排查。' }
+            if (-not $tail) { $tail = '没有捕获到错误输出。请直接运行 dsh-launcher 目录下的「启动 DSH Web.cmd」查看完整错误（本工具已丢弃服务 stdout 以避免令牌落盘）。' }
             throw ("DSH 服务启动失败（进程已退出，代码 {0}）。`n{1}" -f $proc.ExitCode, $tail)
         }
         if (Test-TcpPort -Port $Port) {
             $url = Get-UrlFromState -StateDir (Get-StateDir $Config) -Port $Port
-            if (-not $url) { $url = Get-UrlFromLog -LogPath $errLog -Port $Port }
             if ($url) { break }
         }
     }
     if (-not $url) {
-        throw ("DSH 服务已启动，但在 120 秒内没有拿到带令牌的访问地址。`n请查看错误日志：{0}" -f $errLog)
+        throw ("DSH 服务已启动，但在 120 秒内没有拿到带令牌的访问地址。`n请直接运行 dsh-launcher 目录下的「启动 DSH Web.cmd」查看完整错误（本工具已丢弃服务 stdout 以避免令牌落盘）。")
     }
     Write-Log "DSH 服务就绪：$url"
     return @{ Started = $true; Process = $proc; Url = $url }
@@ -263,7 +262,7 @@ function Start-DshServer {
 function Get-StateDir {
     param($Config)
     $stateDir = Get-ConfigValue $Config 'STATE_DIR' ''
-    if ($stateDir) { return $stateDir }
+    if ($stateDir) { return (Resolve-ProjectPath $stateDir) }
     return (Join-Path $env:LOCALAPPDATA 'dsh-web')
 }
 
@@ -274,12 +273,9 @@ function Resolve-Browser {
     if ($explicit -and -not [System.IO.Path]::IsPathRooted($explicit)) { $explicit = Join-Path $script:Root $explicit }
     if ($explicit -and (Test-Path -LiteralPath $explicit)) { return $explicit }
 
-    # 系统 Edge（默认选择）
-    $edgeCandidates = @(
-        (Join-Path ${env:ProgramFiles(x86)} 'Microsoft\Edge\Application\msedge.exe'),
-        (Join-Path $env:ProgramFiles 'Microsoft\Edge\Application\msedge.exe'),
-        (Join-Path $env:LOCALAPPDATA 'Microsoft\Edge\Application\msedge.exe')
-    )
+    # 系统 Edge（默认选择）；32 位/精简环境可能没有 ProgramFiles(x86)，先过滤空值再 Join
+    $edgeRoots = @(${env:ProgramFiles(x86)}, $env:ProgramFiles, $env:LOCALAPPDATA) | Where-Object { $_ }
+    $edgeCandidates = foreach ($r in $edgeRoots) { Join-Path $r 'Microsoft\Edge\Application\msedge.exe' }
     foreach ($candidate in $edgeCandidates) {
         if ($candidate -and (Test-Path -LiteralPath $candidate)) { return $candidate }
     }
@@ -323,12 +319,11 @@ function Start-CloseWatchdog {
     } catch { }
 
     $wdArgs = @('--browser-pid', [string]$BrowserPid, '--port', [string]$Port, '--log', (Join-Path $script:Root 'logs\launcher.log'), '--flag-file', (Join-Path $script:Root 'state\stopping.flag'))
-    if ($StartedByUs) {
-        $serverPidFile = Join-Path $script:Root 'state\server.pid'
-        if (Test-Path -LiteralPath $serverPidFile) {
-            $serverPidText = (Get-Content -LiteralPath $serverPidFile -Raw).Trim()
-            if ($serverPidText) { $wdArgs += @('--server-pid', $serverPidText) }
-        }
+    # 只要本工具记录过服务 PID 就传给 watchdog，便于它校验并精确停止（避免按端口盲杀）
+    $serverPidFile = Join-Path $script:Root 'state\server.pid'
+    if (Test-Path -LiteralPath $serverPidFile) {
+        $serverPidText = (Get-Content -LiteralPath $serverPidFile -Raw).Trim()
+        if ($serverPidText) { $wdArgs += @('--server-pid', $serverPidText) }
     }
     $wdLine = ($wdArgs | ForEach-Object { Quote-Arg $_ }) -join ' '
     try {
@@ -342,7 +337,7 @@ function Start-CloseWatchdog {
 
 function Start-DshBrowser {
     param($Config, [string]$Url, [string]$BrowserExe, [int]$Port)
-    $profileDir = Get-ConfigValue $Config 'PROFILE_DIR' (Join-Path $script:Root 'profile')
+    $profileDir = Resolve-ProjectPath (Get-ConfigValue $Config 'PROFILE_DIR' (Join-Path $script:Root 'profile'))
     if (-not (Test-Path -LiteralPath $profileDir)) { New-Item -ItemType Directory -Force -Path $profileDir | Out-Null }
 
     $windowSize = Get-ConfigValue $Config 'WINDOW_SIZE' '1280,900'
@@ -400,7 +395,7 @@ try {
     if ($Check) {
         $kind = Get-PortKind -Port $port
         $stateUrl = Get-UrlFromState -StateDir (Get-StateDir $cfg) -Port $port
-        $profileDir = Get-ConfigValue $cfg 'PROFILE_DIR' (Join-Path $script:Root 'profile')
+        $profileDir = Resolve-ProjectPath (Get-ConfigValue $cfg 'PROFILE_DIR' (Join-Path $script:Root 'profile'))
         Write-Host "root        : $script:Root"
         Write-Host "config      : $ConfigPath"
         Write-Host "port        : $port ($kind)"
@@ -425,17 +420,32 @@ try {
         exit 0
     }
 
-    # 如果上一个窗口刚关闭、正在停止服务，先等它完成，避免新窗口刚打开就断线
+    # 如果上一个窗口刚关闭、正在停止服务，先等它完成，避免新窗口刚打开就断线。
+    # 只有确实有存活的 watchdog.exe 在处理同一个 flag 时才等待；否则视为陈旧残留直接清掉，
+    # 避免 watchdog 被强杀/系统重启后每次启动都白等 15 秒。
     $stoppingFlag = Join-Path $script:Root 'state\stopping.flag'
     if (Test-Path -LiteralPath $stoppingFlag) {
-        $flagDeadline = (Get-Date).AddSeconds(15)
-        while ((Test-Path -LiteralPath $stoppingFlag) -and (Get-Date) -lt $flagDeadline) {
-            Start-Sleep -Milliseconds 300
-        }
-        if (Test-Path -LiteralPath $stoppingFlag) {
+        $flagAgeSec = 0
+        try { $flagAgeSec = ((Get-Date) - (Get-Item -LiteralPath $stoppingFlag).LastWriteTime).TotalSeconds } catch { }
+        $watchdogAlive = $false
+        try {
+            $watchdogAlive = [bool](Get-CimInstance Win32_Process -Filter "Name='watchdog.exe'" -ErrorAction SilentlyContinue |
+                Where-Object { $_.CommandLine -and $_.CommandLine.Contains('stopping.flag') })
+        } catch { }
+        # 超过 60 秒的 flag 一定是残留（正常关窗停止服务只需几秒），无需再等
+        if ($flagAgeSec -gt 60 -or -not $watchdogAlive) {
             Remove-Item -LiteralPath $stoppingFlag -Force -ErrorAction SilentlyContinue
+            Write-Log ("发现陈旧的 stopping.flag（约 {0} 秒前，无对应 watchdog 或已超时），已清除。" -f [int]$flagAgeSec)
         } else {
-            Write-Log '检测到上一个窗口正在停止 DSH 服务，已等待其完成。'
+            $flagDeadline = (Get-Date).AddSeconds(15)
+            while ((Test-Path -LiteralPath $stoppingFlag) -and (Get-Date) -lt $flagDeadline) {
+                Start-Sleep -Milliseconds 300
+            }
+            if (Test-Path -LiteralPath $stoppingFlag) {
+                Remove-Item -LiteralPath $stoppingFlag -Force -ErrorAction SilentlyContinue
+            } else {
+                Write-Log '检测到上一个窗口正在关闭并停止 DSH 服务，已等待其完成。'
+            }
         }
     }
 
@@ -447,27 +457,25 @@ try {
     }
 
     $startedByUs = $false
+    $script:startedServerPid = 0
     $url = $null
 
     if ($kind -eq 'dsh') {
         $url = Get-UrlFromState -StateDir (Get-StateDir $cfg) -Port $port
         if (-not $url) {
-            $tmpDir = Join-Path $env:TEMP 'dsh-browser'
-            $tmpLog = Get-ChildItem -LiteralPath $tmpDir -Filter 'server-*.log' -ErrorAction SilentlyContinue |
-                Sort-Object LastWriteTime -Descending | Select-Object -First 1
-            if ($tmpLog) { $url = Get-UrlFromLog -LogPath $tmpLog.FullName -Port $port }
-        }
-        if (-not $url) {
-            # 服务在运行但没有令牌：打开基础地址，并提示用户
+            # 服务在运行但没有令牌：打开基础地址，并提示用户（-NoBrowser 自动化场景不弹窗，避免阻塞）
             $url = ('http://127.0.0.1:{0}/' -f $port)
             Write-Log "警告：服务已在运行，但没有找到令牌 URL，使用基础地址。"
-            Show-Message ("检测到 DSH 服务已在运行，但没有找到本次启动的令牌地址。`n`n已打开基础地址；如果页面提示需要认证，请先关闭正在运行的 DSH 服务（原启动窗口），再重新打开本浏览器。") 'DSH 浏览器' 48
+            if (-not $NoBrowser) {
+                Show-Message ("检测到 DSH 服务已在运行，但没有找到本次启动的令牌地址。`n`n已打开基础地址；如果页面提示需要认证，请先关闭正在运行的 DSH 服务（原启动窗口），再重新打开本浏览器。") 'DSH 浏览器' 48
+            }
         }
     } else {
         Write-Log "DSH 服务未运行，开始启动…"
         $result = Start-DshServer -Config $cfg -Port $port
         $url = $result.Url
         $startedByUs = $true
+        if ($result.Process) { $script:startedServerPid = [int]$result.Process.Id }
     }
 
     if ($NoBrowser) {
@@ -478,7 +486,7 @@ try {
         throw '没有找到可用的浏览器。请安装 Microsoft Edge，或在 config.ini 里设置 BROWSER_PATH（指向任意 Chromium 内核浏览器的 exe）。'
     }
 
-    $profileForFocus = Get-ConfigValue $cfg 'PROFILE_DIR' (Join-Path $script:Root 'profile')
+    $profileForFocus = Resolve-ProjectPath (Get-ConfigValue $cfg 'PROFILE_DIR' (Join-Path $script:Root 'profile'))
     $existingBrowserPid = 0
     if (-not $startedByUs) {
         $existingBrowserPid = Focus-ExistingWindow -ProfileDir $profileForFocus
@@ -494,15 +502,40 @@ try {
     $browserProc = Start-DshBrowser -Config $cfg -Url $url -BrowserExe $browserExe -Port $port
     Write-Log "已打开 DSH 浏览器窗口：$url"
 
+    # Edge/Chrome 单实例机制：若同 profile 已有浏览器在运行，新进程会把命令交给已有实例后立即退出，
+    # 此时 $browserProc.Id 是“假 PID”，直接挂 watchdog 会导致窗口一关/立即误停服务。
+    $watchPid = $browserProc.Id
+    Start-Sleep -Milliseconds 800
+    if ($browserProc.HasExited) {
+        $realPid = Focus-ExistingWindow -ProfileDir $profileForFocus
+        if ($realPid -gt 0) {
+            $watchPid = $realPid
+            Write-Log ("检测到浏览器单实例交接：新进程已退出，改用真实浏览器进程 PID {0} 挂监视器。" -f $realPid)
+        } else {
+            $watchPid = 0
+            Write-Log '警告：浏览器进程已退出且找不到真实窗口进程，跳过关闭监视器（服务将保持运行）。'
+        }
+    }
+
     # 默认：关闭浏览器窗口时同步停止 DSH 服务（watchdog.exe 监视浏览器进程）
-    if ((Get-ConfigValue $cfg 'STOP_SERVER_ON_CLOSE' '1') -eq '1') {
-        Start-CloseWatchdog -BrowserPid $browserProc.Id -Port $port -StartedByUs $startedByUs
+    if ((Get-ConfigValue $cfg 'STOP_SERVER_ON_CLOSE' '1') -eq '1' -and $watchPid -gt 0) {
+        Start-CloseWatchdog -BrowserPid $watchPid -Port $port -StartedByUs $startedByUs
     } else {
-        Write-Log 'STOP_SERVER_ON_CLOSE=0：关闭浏览器后保留 DSH 服务。'
+        Write-Log 'STOP_SERVER_ON_CLOSE=0 或未找到真实浏览器进程：关闭浏览器后保留 DSH 服务。'
     }
     exit 0
 } catch {
     Write-Log ('错误：' + $_.Exception.Message)
-    Show-Message ($_.Exception.Message + "`n`n日志：$(Join-Path $script:Root 'logs\launcher.log')") 'DSH 浏览器 - 启动失败' 16
+    # 浏览器启动失败等异常时，若服务是本工具刚启动的，清理掉避免留下孤儿服务
+    if ($script:startedServerPid -gt 0) {
+        try { & taskkill.exe /PID $script:startedServerPid /T /F 2>$null | Out-Null } catch { }
+        Remove-Item -LiteralPath (Join-Path $script:Root 'state\server.pid') -Force -ErrorAction SilentlyContinue
+        Write-Log '已清理本次启动的 DSH 服务进程。'
+    }
+    if (-not $NoBrowser) {
+        Show-Message ((Mask-Secrets $_.Exception.Message) + "`n`n日志：$(Join-Path $script:Root 'logs\launcher.log')") 'DSH 浏览器 - 启动失败' 16
+    } else {
+        Write-Host ('错误：' + (Mask-Secrets $_.Exception.Message))
+    }
     exit 1
 }
