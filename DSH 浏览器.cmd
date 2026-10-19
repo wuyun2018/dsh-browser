@@ -1,4 +1,5 @@
 @echo off
+cd /d "%~dp0"
 setlocal
 set "PS=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
 "%PS%" -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "%~dp0launcher.ps1" %*
