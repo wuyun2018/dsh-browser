@@ -72,7 +72,11 @@ foreach ($pidFile in $pidFiles) { Remove-Item -LiteralPath $pidFile -Force -Erro
 $listeners = @(& netstat.exe -ano 2>$null | Select-String -Pattern 'LISTENING' | Select-String -Pattern (':{0}\s' -f $port))
 if ($listeners.Count -gt 0) {
     $parts = @($listeners[0].Line -split '\s+' | Where-Object { $_ -ne '' })
-    $listenerPid = $parts[$parts.Count - 1]
+    $listenerPid = [int]$parts[$parts.Count - 1]
+    if (-not (Test-DshProcess -ProcessId $listenerPid)) {
+        Show-Msg ("端口 {0} 的监听进程 PID {1} 不是可识别的 DSH node 进程，拒绝停止。`n`n请手动确认该端口上运行的是什么程序。" -f $port, $listenerPid) 48
+        Exit-Stop 2
+    }
     $ws = New-Object -ComObject WScript.Shell
     $answer = $ws.Popup(("端口 {0} 上有正在运行的 DSH 服务（PID {1}），但它不是由 DSH 浏览器启动的。`n`n仍要强制停止吗？（会断开所有已打开的 DSH 页面）" -f $port, $listenerPid), 60, 'DSH 浏览器', 4 + 32)
     if ($answer -eq 6) {

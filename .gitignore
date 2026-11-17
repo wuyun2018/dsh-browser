@@ -2,6 +2,10 @@
 profile/
 logs/
 state/
+backup/
+tests/
+workspace/
+review/
 
 # 本机快捷方式与旧个人图标
 *.lnk
@@ -12,6 +16,7 @@ DSH-custom.ico
 *.log
 *.tmp
 *.bak
+*.bak-*
 *~
 
 # 本机文档（仓库使用 README.md）

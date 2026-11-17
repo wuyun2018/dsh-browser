@@ -536,7 +536,22 @@ function Clear-StaleState {
     $files.Add((Join-Path $script:Root 'state\server-wrapper.pid'))
     $files.Add((Join-Path $script:Root 'state\server.pid'))
     if ($PidFile) { $files.Add($PidFile) }
-    if ($StateDir) { $files.Add((Join-Path $StateDir 'url.txt')) }
+    # 只允许删除本工具自己的 state 目录或 %LOCALAPPDATA%\dsh-web 下的 url.txt；
+    # config.ini 的 STATE_DIR 被误配成其它目录时，绝不递归/越界删文件。
+    if ($StateDir) {
+        $urlFile = Join-Path $StateDir 'url.txt'
+        $fullUrl = [System.IO.Path]::GetFullPath($urlFile).TrimEnd('\')
+        $allowed = @(
+            [System.IO.Path]::GetFullPath((Join-Path $script:Root 'state')).TrimEnd('\'),
+            [System.IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'dsh-web')).TrimEnd('\')
+        )
+        $safe = $false
+        foreach ($a in $allowed) {
+            if ($fullUrl.StartsWith($a + '\', [System.StringComparison]::OrdinalIgnoreCase)) { $safe = $true; break }
+        }
+        if ($safe) { $files.Add($urlFile) }
+        else { Write-RestartLog ('拒绝删除不在白名单内的状态文件：' + $urlFile) }
+    }
     foreach ($f in $files) {
         try { if (Test-Path -LiteralPath $f) { Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue } } catch { }
     }

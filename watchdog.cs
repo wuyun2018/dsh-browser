@@ -1,10 +1,12 @@
-﻿// DSH 浏览器 - 关闭监视器
+// DSH 浏览器 - 关闭监视器
 // 等待 DSH 浏览器窗口进程退出，然后停止 DSH 服务（Node.js）。
 // 编译（Windows 自带 .NET Framework 4.x）：
 //   csc.exe /nologo /target:winexe /optimize+ /codepage:65001 /out:watchdog.exe /win32icon:DSH.ico watchdog.cs
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Management;
+using System.Text.RegularExpressions;
 using System.Threading;
 
 internal static class Program
@@ -60,8 +62,8 @@ internal static class Program
             int target = -1;
             if (serverPid > 0)
             {
-                if (IsNodeProcess(serverPid)) { target = serverPid; }
-                else { Log("记录的服务 PID " + serverPid + " 已不是 node 进程（可能被复用），改为按端口查找"); }
+                if (IsDshNodeProcess(serverPid)) { target = serverPid; }
+                else { Log("记录的服务 PID " + serverPid + " 已不是 node/DSH 进程（可能被复用），改为按端口查找"); }
             }
             if (target <= 0) { target = FindListenerPid(port); }
             if (target <= 0)
@@ -69,9 +71,9 @@ internal static class Program
                 Log("没有找到端口 " + port + " 上的服务进程，可能已经停止");
                 return 0;
             }
-            if (!IsNodeProcess(target))
+            if (!IsDshNodeProcess(target))
             {
-                Log("端口 " + port + " 上的进程 PID " + target + " 不是 node/DSH 服务，已跳过停止（避免误杀）");
+                Log("端口 " + port + " 上的进程 PID " + target + " 不是 DSH node 服务，已跳过停止（避免误杀）");
                 return 0;
             }
 
@@ -87,7 +89,7 @@ internal static class Program
                     Log("DSH 服务已停止，端口 " + port + " 已释放");
                     return 0;
                 }
-                if (still != target && !IsNodeProcess(still))
+                if (still != target && !IsDshNodeProcess(still))
                 {
                     Log("端口 " + port + " 已被其它进程占用，停止继续操作");
                     return 0;
@@ -95,7 +97,7 @@ internal static class Program
             }
             // 兜底：再按端口找一次，仅当仍是 node 进程才强杀
             int again = FindListenerPid(port);
-            if (again > 0 && IsNodeProcess(again))
+            if (again > 0 && IsDshNodeProcess(again))
             {
                 Log("服务仍在运行，再次停止 PID " + again);
                 KillTree(again);
@@ -111,16 +113,42 @@ internal static class Program
         }
     }
 
-    private static bool IsNodeProcess(int pid)
+    // 只允许停止“node + 命令行确实是 DSH”的进程：
+    // - server.pid 可能是真实监听者（dsh\lib\bin.js）
+    // - server-wrapper.pid 可能是 start-dsh-web.mjs
+    // PID 被系统复用时，仅凭进程名 node 会误杀其它 Node 程序。
+    private static bool IsDshNodeProcess(int pid)
     {
         try
         {
             using (Process p = Process.GetProcessById(pid))
             {
-                return string.Equals(p.ProcessName, "node", StringComparison.OrdinalIgnoreCase);
+                if (!string.Equals(p.ProcessName, "node", StringComparison.OrdinalIgnoreCase)) return false;
             }
+            string cmd = GetCommandLine(pid);
+            if (string.IsNullOrEmpty(cmd)) return false;
+            return Regex.IsMatch(cmd, @"start-dsh-web\.mjs|@deepseek-ai[\\/]dsh|dsh[\\/]lib[\\/]bin\.js",
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
         }
         catch { return false; }
+    }
+
+    private static string GetCommandLine(int pid)
+    {
+        try
+        {
+            using (var searcher = new ManagementObjectSearcher(
+                "SELECT CommandLine FROM Win32_Process WHERE ProcessId=" + pid))
+            {
+                foreach (ManagementObject obj in searcher.Get())
+                {
+                    object value = obj["CommandLine"];
+                    if (value != null) return Convert.ToString(value);
+                }
+            }
+        }
+        catch { }
+        return null;
     }
 
     // 先托管 Kill（不依赖外部 taskkill，避免在无控制台/Job 环境下挂起），再用 taskkill /T 兜底清理子进程树

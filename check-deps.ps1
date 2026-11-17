@@ -217,17 +217,6 @@ foreach ($d in @('profile', 'logs', 'state')) {
 if ($dirty.Count -eq 0) { Add-Result '运行期数据（分享前检查）' 'PASS' 'profile/logs/state 为空或不存在' }
 else { Add-Result '运行期数据（分享前检查）' 'WARN' ('含个人数据：' + ($dirty -join '、')) '分享/打包前先双击「清理隐私数据.cmd」选 [2]，或直接删除这三个目录' }
 
-# ---- 11. 可选：REA MCP ----
-$dshHome = $env:DSH_HOME
-if ([string]::IsNullOrWhiteSpace($dshHome)) { $dshHome = Join-Path $env:USERPROFILE '.dsh' }
-$reaConfig = Join-Path $dshHome 'cordis.patch.yml'
-$reaDisabled = $reaConfig + '.disabled'
-if ((Test-Path -LiteralPath $reaConfig) -and (Test-Path -LiteralPath $reaDisabled)) {
-    Add-Result 'REA MCP（可选）' 'WARN' '配置文件 .yml 与 .disabled 同时存在（状态冲突）' '手动只保留一个；或用「切换 REA MCP.cmd」按提示处理'
-}
-elseif (Test-Path -LiteralPath $reaConfig) { Add-Result 'REA MCP（可选）' 'PASS' '已启用（可用「切换 REA MCP.cmd」关闭以省内存）' }
-else { Add-Result 'REA MCP（可选）' 'WARN' '未启用（不影响 DSH 浏览器使用）' '' }
-
 Write-Host ''
 Write-Host '=================================================='
 Write-Host (" 结果：PASS {0} 项 / WARN {1} 项 / FAIL {2} 项" -f $ok, $warn, $fail) -ForegroundColor $(if ($fail -gt 0) { 'Red' } elseif ($warn -gt 0) { 'Yellow' } else { 'Green' })

@@ -479,11 +479,11 @@ function Start-DshBrowser {
 try {
     $cfg = Read-Config -Path $ConfigPath
     $script:Config = $cfg
-    # 从网络下载的 ZIP 解压后文件可能带“来自 Internet”标记（MOTW），会触发安全警告；
-    # 启动时尽力解除本目录文件的锁定标记（失败可忽略，不影响功能）。
+    # 只解除唯一可执行文件 watchdog.exe 的 MOTW 标记；不要对整个目录批量 Unblock-File，
+    # 否则目录里被替换成恶意脚本时也会被静默放行。
     try {
-        Get-ChildItem -LiteralPath $script:Root -File -Force -ErrorAction SilentlyContinue |
-            Unblock-File -ErrorAction SilentlyContinue
+        $watchdogFile = Join-Path $script:Root 'watchdog.exe'
+        if (Test-Path -LiteralPath $watchdogFile) { Unblock-File -LiteralPath $watchdogFile -ErrorAction SilentlyContinue }
     } catch { }
     $port = 0
     $portText = Get-ConfigValue $cfg 'PORT' '3080'
@@ -712,7 +712,8 @@ try {
     }
 
     if ($NoBrowser) {
-        Write-Host $url
+        # -NoBrowser 只用于自动化探测；绝不把完整令牌打印到控制台/日志。
+        Write-Host (Mask-Secrets $url)
         Exit-Launcher 0
     }
     if (-not $browserExe) {

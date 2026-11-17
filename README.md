@@ -5,7 +5,7 @@
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%20%2F%2011-0078D4?logo=windows)
 ![PowerShell](https://img.shields.io/badge/PowerShell-5.1%2B-5391FE?logo=powershell)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Size](https://img.shields.io/badge/package-~80%20KB-brightgreen)
+![Size](https://img.shields.io/badge/package-~100%20KB-brightgreen)
 
 简体中文 | [English Summary](#english-summary)
 
@@ -40,7 +40,7 @@
 - 用 **系统 Microsoft Edge（Chromium）的 `--app` 应用模式**打开 DSH Web：没有标签栏、没有地址栏，像一个独立浏览器窗口；
 - 使用**独立的浏览器配置目录（profile）**，与你日常使用的 Edge 完全隔离；
 - 内置轻量监视器 `watchdog.exe`：窗口关闭时同步停止 DSH 服务，Node 进程不残留；
-- 附带隐私清理、快捷方式修复、环境自检、分享打包、REA MCP 开关等实用脚本。
+- 附带隐私清理、快捷方式修复、环境自检等辅助脚本；REA MCP 与分享打包属于使用者后来添加的本地扩展，**不在本发布包内**。
 
 ---
 
@@ -57,8 +57,6 @@
 | 🧹 隐私清理 | 一键清理 profile / logs / state / 令牌文件（分享前必备） |
 | 🛠️ 快捷方式修复 | 移动目录后一键重建桌面/开始菜单/项目内快捷方式 |
 | 🩺 环境自检 | 检查 PowerShell / Edge / Node.js / dsh / 启动脚本 / 工作目录等 |
-| 📦 打包分享 | 一键生成排除个人数据的干净 ZIP，方便发给他人 |
-| 🔧 REA MCP 开关 | 可选启用/禁用反向工程工具服务 REA MCP（节省约 240MB 常驻内存） |
 | 🎨 统一图标 | 桌面/开始菜单/任务栏统一使用 DSH 网页自己的 favicon |
 
 ---
@@ -85,7 +83,7 @@
 
 安全设计：
 
-- DSH 令牌只在本机 `127.0.0.1` 使用，**不会写入日志**（`launcher.ps1` 内置 `Mask-Secrets` 脱敏）；
+- DSH 令牌只在本机 `127.0.0.1` 使用，**不会写入日志**（`common.ps1` 的 `Mask-Secrets` 负责脱敏，launcher/restart 共用）；
 - DSH 服务的 stdout 含令牌，因此**直接丢弃**（重定向到 NUL），只保留 stderr 到 `%TEMP%\dsh-browser`；
 - 所有脚本不收集、不上传任何数据。
 
@@ -126,7 +124,7 @@
 
 首次打开会自动启动 DSH 服务（隐藏窗口，约 5–15 秒）；若保持服务运行（`STOP_SERVER_ON_CLOSE=0`），再次打开秒开。
 
-> **从 GitHub 下载 ZIP 的用户请注意**：Windows 会给下载的压缩包里的文件加上"来自 Internet"标记（MOTW），首次运行 `.cmd` 或 `watchdog.exe` 时可能弹出"打开文件 - 安全警告"。选择"打开"即可；也可以右键 ZIP → 属性 → 勾选"解除锁定"后再解压。`launcher.ps1` 启动时也会自动尝试解除本目录文件的锁定标记，并使用不会触发该提示的方式启动 `watchdog.exe`。
+> **从 GitHub 下载 ZIP 的用户请注意**：Windows 会给下载的压缩包里的文件加上"来自 Internet"标记（MOTW），首次运行 `.cmd` 或 `watchdog.exe` 时可能弹出"打开文件 - 安全警告"。选择"打开"即可；也可以右键 ZIP → 属性 → 勾选"解除锁定"后再解压。`launcher.ps1` 只解除 `watchdog.exe` 的锁定标记，不会对整个目录批量 `Unblock-File`。
 
 ---
 
@@ -145,9 +143,7 @@ dsh-browser/
 ├─ stop.ps1                  手动停止 DSH 服务
 ├─ cleanup-privacy.ps1       隐私数据清理逻辑
 ├─ repair-shortcuts.ps1      快捷方式重建逻辑
-├─ toggle-rea-mcp.ps1        REA MCP 启用/禁用逻辑
 ├─ check-deps.ps1            环境自检逻辑
-├─ make-share-zip.ps1        生成分享 ZIP 逻辑
 ├─ watchdog.exe              关闭监视器（C# 编译，监视浏览器窗口退出）
 ├─ watchdog.cs               监视器源码
 ├─ DSH-favicon.ico           图标（取自 DSH 网页 favicon，与任务栏一致）
@@ -160,9 +156,7 @@ dsh-browser/
 ├─ 检查状态.cmd              查看端口/服务/浏览器解析结果
 ├─ 停止 DSH 服务.cmd         停止 DSH 服务
 ├─ 清理隐私数据.cmd          清理运行期个人数据
-├─ 修复快捷方式.cmd          移动目录后重建快捷方式
-├─ 切换 REA MCP.cmd          启用/禁用 REA MCP
-└─ 打包分享.cmd              生成干净分享 ZIP
+└─ 修复快捷方式.cmd          移动目录后重建快捷方式
 ```
 
 > 运行后会生成 `profile\`、`logs\`、`state\` 三个目录（个人数据/运行期数据，已被 `.gitignore` 忽略，请勿提交）。
@@ -183,8 +177,8 @@ dsh-browser/
 | `停止 DSH 服务.cmd` | 停止服务 | 手动停止 DSH 服务（含确认提示） |
 | `清理隐私数据.cmd` | 隐私清理 | `[1]` 仅清日志；`[2]` 完整清理（会关闭窗口并停服务）；脚本支持 `-DryRun` 预览、`-Yes` 非交互完整清理 |
 | `修复快捷方式.cmd` | 重建快捷方式 | 移动目录后必须执行 |
-| `切换 REA MCP.cmd` | REA MCP 开关 | 启用/禁用反向工程工具服务（需重启 DSH 服务） |
-| `打包分享.cmd` | 生成分享 ZIP | 自动排除 `profile/logs/state/*.lnk`，输出到项目上一级目录 |
+
+> 本发布包只包含启动器核心功能。`切换 REA MCP.cmd` 与 `打包分享.cmd` 是使用者后来添加的本地扩展，不属于本仓库的发布边界。
 
 ---
 
@@ -228,8 +222,8 @@ dsh-browser/
 **Q6：内存占用多少？**
 本机实测：浏览器窗口约 250–340 MB 私有内存（取决于页面里打开的会话内容）；普通 Edge 窗口打开 DSH 通常 1 GB+。关闭窗口后 DSH 服务也会停止，整套内存释放。
 
-**Q7：REA MCP 是什么？要不要开？**
-REA 是一套可选的反向工程工具服务（二进制/.NET/Electron/APK/固件/崩溃分析等），常驻约 240MB。不需要逆向分析时可双击「切换 REA MCP.cmd」禁用以省内存；需要时再启用（均需重启 DSH 服务生效）。是否默认启用取决于使用者自己的 DSH 配置。
+**Q7：为什么仓库里没有 REA MCP / 打包分享脚本？**
+REA MCP 与分享包生成是后期使用者额外添加的本地扩展，不属于本项目核心发布边界；本仓库只发布启动器、服务生命周期、watchdog、隐私清理、快捷方式修复和环境自检。
 
 **Q8：图标是哪来的？**
 取自 DSH 网页自己的 favicon（与任务栏图标一致），仅用于标识本工具；版权归 DeepSeek Harness 项目所有。
@@ -266,9 +260,9 @@ REA 是一套可选的反向工程工具服务（二进制/.NET/Electron/APK/固
 
 - 本工具**不收集、不上传**任何数据；
 - 运行期会生成 `profile\`（浏览器用户数据，可能包含 Microsoft 账号登录信息、DSH 会话 Cookie、历史等）、`logs\`（启动日志，已脱敏）、`state\`（PID/标志）；
-- 分享/打包/上传前请先双击「清理隐私数据.cmd」选 `[2]` 完整清理，或直接删除这三个目录；
-- 「打包分享.cmd」会自动排除上述目录、`*.lnk` 和旧图标，不会把个人数据打进分享包；
-- DSH 令牌只在本地 `127.0.0.1` 使用；日志中的令牌一律打码为 `?token=***`；服务 stdout（含令牌）直接丢弃不落盘。
+- 发布/上传前请先双击「清理隐私数据.cmd」选 `[2]` 完整清理，或直接删除这三个目录；
+- 发布包不包含打包/REA 扩展；需要自行分享时请手动压缩，并排除上述目录、`*.lnk` 与旧图标；
+- DSH 令牌只在本地 `127.0.0.1` 使用；日志中的令牌一律打码为 `?token=***`；服务 stdout（含令牌）直接丢弃不落盘。注意：Edge 的 `--app=<令牌 URL>` 命令行在 Windows 进程列表中可见，这是应用模式本身的限制，工具无法完全隐藏。
 
 ---
 
@@ -276,9 +270,9 @@ REA 是一套可选的反向工程工具服务（二进制/.NET/Electron/APK/固
 
 **移动目录**：先关闭 DSH 浏览器窗口（等待 watchdog 停服务）→ 移动整个文件夹 → 在新位置双击「修复快捷方式.cmd」→「检查状态.cmd」核对。
 
-**分享给他人**：
+**分享给他人**：本发布包不包含打包脚本。需要分享时：
 1. 关闭窗口 → 「清理隐私数据.cmd」选 `[2]`；
-2. 双击「打包分享.cmd」，在项目上一级目录生成 `DSH浏览器-分享包-时间.zip`；
+2. 手动压缩整个文件夹，排除 `profile/`、`logs/`、`state/`、`*.lnk`；
 3. 把 ZIP（以及可选的 `dsh-launcher` 目录）发给对方；
 4. 对方解压 → 把 `dsh-launcher` 放同级 → 「检查依赖.cmd」全 PASS → 「修复快捷方式.cmd」→ 使用。
 
@@ -291,7 +285,7 @@ REA 是一套可选的反向工程工具服务（二进制/.NET/Electron/APK/固
 - **重新编译 watchdog**（Windows 自带 .NET Framework 4.x）：
   ```bat
   %WINDIR%\Microsoft.NET\Framework64\v4.0.30319\csc.exe /nologo /target:winexe /optimize+ /codepage:65001 ^
-    /out:watchdog.exe /win32icon:DSH.ico watchdog.cs
+    /r:System.Management.dll /out:watchdog.exe /win32icon:DSH.ico watchdog.cs
   ```
 - **文件编码约定**：
   - `.ps1`：UTF-8 **带 BOM** + LF（Windows PowerShell 5.1 正确读取中文所必需）；
@@ -340,7 +334,7 @@ REA 是一套可选的反向工程工具服务（二进制/.NET/Electron/APK/固
 
 ## English Summary
 
-A lightweight Windows launcher/shell for the **DeepSeek Harness (DSH)** web UI. Instead of bundling a browser, it opens the local DSH web app in a dedicated **Microsoft Edge app-mode window** (separate profile, minimal flags), automatically starts/reuses the DSH server, and stops it when the window closes via a small `watchdog.exe`. It also ships privacy cleanup, shortcut repair, environment self-check, share packaging, and an optional REA MCP toggle.
+A lightweight Windows launcher/shell for the **DeepSeek Harness (DSH)** web UI. Instead of bundling a browser, it opens the local DSH web app in a dedicated **Microsoft Edge app-mode window** (separate profile, minimal flags), automatically starts/reuses the DSH server, and stops it when the window closes via a small `watchdog.exe`. It also ships privacy cleanup, shortcut repair, and environment self-check. REA MCP and share-package generation are local extensions and are not part of this release.
 
 **Requirements:** Windows 10/11, Microsoft Edge, Windows PowerShell 5.1, Node.js, DeepSeek Harness (`npm i -g @deepseek-ai/dsh`), and your own `dsh-launcher/start-dsh-web.mjs`.
 
