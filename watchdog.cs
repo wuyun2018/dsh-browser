@@ -9,6 +9,14 @@ using System.Management;
 using System.Text.RegularExpressions;
 using System.Threading;
 
+[assembly: System.Reflection.AssemblyTitle("dsh-browser watchdog")]
+[assembly: System.Reflection.AssemblyDescription("Stops the DSH server when the browser window closes")]
+[assembly: System.Reflection.AssemblyProduct("DSH Browser")]
+[assembly: System.Reflection.AssemblyCompany("dsh-browser")]
+[assembly: System.Reflection.AssemblyVersion("1.2.3.0")]
+[assembly: System.Reflection.AssemblyFileVersion("1.2.3.0")]
+[assembly: System.Reflection.AssemblyInformationalVersion("1.2.3")]
+
 internal static class Program
 {
     private static string _logPath;

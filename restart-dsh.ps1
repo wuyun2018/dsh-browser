@@ -24,7 +24,7 @@
 #  安全边界（很重要）：
 #    * 只动"本实例"：端口必须一致（默认取 config.ini 的 PORT）+ 命令行匹配 DSH +
 #      浏览器必须使用本目录的专属 profile。不碰用户日常 Edge 窗口，
-#      也不碰其它 DSH 实例（例如 <DSH_HOME>\instances\* 上的 3082）。
+#      也不碰其它 DSH 实例（例如同一台机器上跑在别的端口上的实例）。
 #    * 端口被"非 DSH 程序"占用时只报错，绝不盲杀。
 #    * 无交互确认（一键）；失败才弹窗；全程写 logs\restart.log（令牌已脱敏）。
 #    * 兼容 Windows PowerShell 5.1（不依赖 PowerShell 7）。
@@ -39,8 +39,8 @@ param(
     [switch]$Quiet,
     [switch]$NoPopup,
     [switch]$Progress,
-    [switch]$StrictExitCode,   # 0 成功 / 2 锁被占 / 3 DryRun / 5 已脱钩；默认沿用旧行为返回 0
-    [switch]$Detached          # 内部使用：已脱钩重跑，不再做自我毁灭检查
+    [switch]$StrictExitCode,   # 0 成功 / 2 锁被占 / 3 DryRun / 5 已脱钩；默认返回 0（兼容既有调用方）
+    [switch]$Detached          # 已脱钩重跑时传入：跳过自我检查，避免二次脱钩
 )
 
 $ErrorActionPreference = 'Stop'
@@ -302,7 +302,7 @@ function Get-DshPlan {
     # 只比 profile 是不够的：两个实例共用 PROFILE_DIR（或 profile 目录被整体复制过）时，
     # 另一端口的 DSH 窗口会被当成"本实例"误杀，还会连带停掉它背后的服务。
     # 判据：命令行带 --app=<URL> 的，URL 必须指向本端口；没有 --app=/--type= 的主进程
-    # （用户手动开窗复用同一 profile）仍按 profile 命中，保持旧行为；带 --type= 的子进程
+    # （用户手动开窗复用同一 profile）仍按 profile 命中，保持既有匹配规则；带 --type= 的子进程
     # 不单独做种子，交给父进程的后代展开一起覆盖。
     $browserSeeds = New-Object System.Collections.Generic.List[int]
     $appRe = '(?i)--app=(?:"|'')?https?://[^"\s'']*:{0}(?:[/?"\s'']|$)' -f $Port

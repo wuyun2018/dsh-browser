@@ -8,9 +8,9 @@ param(
     [switch]$Check,
     [switch]$NoPopup,
     # 退出码严格模式（给 restart-dsh.ps1 / 自动化用）：锁被占用时返回 2 而不是 0。
-    # 默认保持旧行为，避免外部脚本把「重复双击」误判成失败。
+    # 默认保持兼容语义，避免外部脚本把「重复双击」误判成失败。
     [switch]$StrictExitCode,
-    # 内部使用：restart-dsh.ps1 已持有共享操作锁，子启动器不要再抢同一把锁。
+    # 已持有共享操作锁时传入：子启动器不再抢同一把锁（避免重复双击互相等待）。
     [switch]$OperationLockHeld
 )
 
@@ -396,7 +396,7 @@ function Start-CloseWatchdog {
     param([int]$BrowserPid, [int]$Port, [bool]$StartedByUs)
     if ($BrowserPid -le 0) { return }
     # 默认只停止“本工具启动的服务”。如果服务是复用已有实例，关闭窗口不应把
-    # 用户/另一个入口正在使用的服务一起关掉；需要旧行为时在 config.ini 设 STOP_REUSED_SERVER=1。
+    # 用户/另一个入口正在使用的服务一起关掉；需要关闭窗口时一并停止复用服务，在 config.ini 设 STOP_REUSED_SERVER=1。
     if (-not $StartedByUs) {
         $stopReused = Get-ConfigValue $script:Config 'STOP_REUSED_SERVER' '0'
         if ($stopReused -ne '1') {

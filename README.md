@@ -3,9 +3,9 @@
 > 为 **DeepSeek Harness（DSH）Web 端**打造的轻量 Windows 浏览器外壳：一键启动/复用 DSH 服务，用系统 Edge 的应用窗口打开 DSH Web，关闭窗口时自动停止服务。
 
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%20%2F%2011-0078D4?logo=windows)
-![PowerShell](https://img.shields.io/badge/PowerShell-5.1%2B-5391FE?logo=powershell)
+![PowerShell](https://img.shields.io/badge/PowerShell-5.1-5391FE?logo=powershell)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Size](https://img.shields.io/badge/package-~103%20KB-brightgreen)
+![Size](https://img.shields.io/badge/package-~103%20KiB-brightgreen)
 
 简体中文 | [English Summary](#english-summary)
 
@@ -48,7 +48,7 @@
 
 | 特性 | 说明 |
 |---|---|
-| 🪶 轻量省内存 | 应用窗口 + 精简启动参数 + 独立 profile；典型约 **250–340 MB 私有内存**（普通 Edge 窗口打开 DSH 通常 1 GB+） |
+| 🪶 轻量省内存 | 应用窗口 + 精简启动参数 + 独立 profile；典型约 **250–340 MB 私有内存**（普通 Edge 窗口打开 DSH 通常 1 GB+；不同页面与插件下差异较大，仅作量级参考） |
 | 🧩 无地址栏/无标签页 | 用 Edge `--app` 模式打开，专注 DSH 界面 |
 | 🔁 自动服务生命周期 | 打开时自动启动/复用 DSH 服务；关闭窗口时由 watchdog 同步停止服务（可配置保留） |
 | 🔒 独立配置 | 独立 `profile` 目录，不共享日常浏览器的 Cookie/扩展/历史 |
@@ -188,7 +188,7 @@ dsh-browser/
 | `BROWSER_PATH` | 空 | 浏览器 exe；留空自动用系统 Edge；可指定任意 Chromium 内核浏览器（支持相对路径） |
 | `EXTRA_FLAGS` | 空 | 追加的浏览器启动参数（空格分隔） |
 | `STOP_SERVER_ON_CLOSE` | `1` | 关闭窗口时是否停止 DSH 服务：`1` 停止（默认），`0` 保留（共享服务时用） |
-| `STOP_REUSED_SERVER` | `0` | 复用“本来就在运行”的 DSH 服务时，关闭窗口是否也停止它：`0` 不停止（默认，避免误停别的入口正在用的服务），`1` 停止（旧行为） |
+| `STOP_REUSED_SERVER` | `0` | 复用“本来就在运行”的 DSH 服务时，关闭窗口是否也停止它：`0` 不停止（默认，避免误停别的入口正在用的服务），`1` 停止（关闭窗口时一并停止） |
 | `WINDOW_SIZE` | `1280,900` | 浏览器窗口大小 |
 | `PROFILE_DIR` | 空 | 浏览器用户数据目录；留空 = 本目录下 `profile\` |
 | `LAUNCHER_SCRIPT` | 空 | `start-dsh-web.mjs` 路径；留空自动探测（config → 项目同级 `..\dsh-launcher` → 默认安装位置） |
@@ -206,7 +206,7 @@ dsh-browser/
 通常是后台 DSH 宿主被设置页的“重启”换过进程，旧令牌失效。新版本会自动尝试从重启日志恢复令牌；恢复失败时会**精确停掉当前监听者并重新启动服务**以生成新令牌，不再打开一个 401 基础地址。若仍失败，看 `logs\launcher.log` 的「没有可用令牌 URL」一段；也可双击「停止 DSH 服务.cmd」后重开。
 
 **Q2：双击没反应？**
-用「DSH 浏览器（调试）.cmd」启动查看错误；启动日志在 `logs\launcher.log`（一键重启的日志是 `logs\restart.log`）。若 DSH 服务本身启动失败，请直接运行 `dsh-launcher` 目录下的「启动 DSH Web.cmd」查看完整错误（本工具为避免令牌落盘，丢弃了服务 stdout）。
+用「DSH 浏览器（调试）.cmd」启动查看错误；启动日志在 `logs\launcher.log`（一键重启的日志是 `logs\restart.log`）。若 DSH 服务本身启动失败，请直接运行你 `dsh-launcher` 目录里的启动脚本（例如 `start-dsh-web.mjs` 对应的 `.cmd`）查看完整错误（本工具为避免令牌落盘，丢弃了服务 stdout）。
 
 **Q3：任务管理器里为什么显示 `msedge.exe`？**
 本项目复用系统 Edge 的 Chromium 内核，不是独立浏览器。专用窗口使用独立 `--user-data-dir`，与你日常 Edge 互不影响；可查看命令行中的 `--app=...` 与 `--user-data-dir=...\profile` 区分。
@@ -218,10 +218,10 @@ dsh-browser/
 快捷方式记录的是绝对路径。移动后在新位置双击「修复快捷方式.cmd」重建即可；再用「检查状态.cmd」核对路径。
 
 **Q6：内存占用多少？**
-典型占用：浏览器窗口约 250–340 MB 私有内存（取决于页面里打开的会话内容）；普通 Edge 窗口打开 DSH 通常 1 GB+。关闭窗口后 DSH 服务也会停止，整套内存释放。
+典型占用：浏览器窗口约 250–340 MB 私有内存（取决于页面里打开的会话内容；不同页面与插件下差异较大，仅作量级参考）；普通 Edge 窗口打开 DSH 通常 1 GB+。关闭窗口后 DSH 服务也会停止，整套内存释放。
 
 **Q7：图标是哪来的？**
-取自 DSH 网页自己的 favicon（与任务栏图标一致），仅用于标识本工具；版权归 DeepSeek Harness 项目所有。
+图标取自 DSH 网页自己的 favicon（与任务栏图标一致），仅用于标识本工具；版权声明见「已知限制」。
 
 **Q8：从 GitHub 下载后首次运行弹"安全警告"，或杀毒软件报 `watchdog.exe` 可疑？**
 这是 Windows 对下载文件的正常保护（MOTW），不是病毒。处理方式：
@@ -230,7 +230,7 @@ dsh-browser/
 - 杀毒软件误报时，将 `watchdog.exe` 加入信任/白名单（它是本项目自带源码 `watchdog.cs` 编译的简单监视器，可自行用 `csc` 重新编译核对）。
 
 **Q9：为什么 `watchdog.exe` 没有窗口/看不到？**
-它是隐藏运行的轻量监视器（约 12MB 内存），只负责"浏览器窗口关闭 → 停止 DSH 服务"，任务管理器里能看到但无界面，属正常现象。
+它是隐藏运行的轻量监视器（通常约 12MB 内存；不同系统/版本略有差异），只负责"浏览器窗口关闭 → 停止 DSH 服务"，任务管理器里能看到但无界面，属正常现象。
 
 **Q10：启动很慢，或者弹「DSH 启动失败（退出码 1）」，但窗口其实能打开？**
 先分清"真失败"和"预算到了"。`launcher.ps1` 有一个启动预算 `START_TIMEOUT_SEC`（默认 240 秒）：预算内没拿到带令牌 URL 就报失败。
@@ -239,7 +239,7 @@ dsh-browser/
 - 看 `logs\launcher.log` 里「服务启动预算 N 秒」到「DSH 服务就绪」的间隔，接近预算就调大 `START_TIMEOUT_SEC`（最多建议 260，别超过启动器 270 秒的单实例锁）；
 - 用「重启 DSH」时更宽容：启动器按自己的预算退出、但端口已在监听时，`restart-dsh.ps1` 会继续等到 `-BootTimeoutSec`（默认 300 秒），服务就绪后再补一次启动器把窗口打开——所以一键重启报的"失败"比启动器自己的弹窗可信；
 - 启动器的退出码：**0** = 成功；**1** = 真失败（已清理本次启动的进程）；**2** = 另一个启动/重启操作正在进行（仅 `-StrictExitCode`）；**4** = 服务进程活着且端口已在监听、只是前端页面在预算内没就绪（`BOOT_PENDING`，**故意不杀进程**，服务留在后台继续启动，稍后重开窗口即可）；
-- `restart-dsh.ps1 -StrictExitCode` 另外用 **3** 表示 DryRun、**5** 表示已脱钩交给后台；不加 `-StrictExitCode` 时仍沿用旧行为返回 0；
+- `restart-dsh.ps1 -StrictExitCode` 另外用 **3** 表示 DryRun、**5** 表示已脱钩交给后台；不加 `-StrictExitCode` 时，「重启完成」返回 0（需要区分 DryRun / 已脱钩时加该开关）；
 - 日志里出现 `dsh: warning: N entries did not activate` 说明有插件没激活（功能会缺一块），一键重启结束时会把这类告警打出来。
 
 **Q11：DSH 页面里的「权限」相关控件缺失或点不动？**
@@ -287,6 +287,7 @@ dsh-browser/
 - 复用系统 Edge 内核，不是独立浏览器；任务管理器显示 `msedge.exe` 属正常现象；
 - 需要使用者自己的 DSH 安装与 `dsh-launcher\start-dsh-web.mjs`；
 - `watchdog` 以浏览器主进程退出为触发条件（Edge 异常崩溃时同样会停止服务）；
+- `watchdog.exe` 未做代码签名，Windows 可能提示“未知发布者”；可对照 `watchdog.cs` 自行重新编译核对；
 - 自定义 `BROWSER_PATH` 时，窗口聚焦/清理已做通用匹配，但未覆盖所有 Chromium 分支的所有行为；
 - 图标取自 DSH 网页 favicon，版权归原项目所有。
 
@@ -306,7 +307,7 @@ dsh-browser/
 
 [MIT](LICENSE) © 2026 [wuyun2018](https://github.com/wuyun2018)
 
-> 图标取自 DeepSeek Harness 网页 favicon，仅用于标识本工具，相关权利归原项目所有。
+> 图标版权声明见「已知限制」。
 
 ---
 
@@ -325,4 +326,4 @@ A lightweight Windows launcher/shell for the **DeepSeek Harness (DSH)** web UI. 
 
 **Quick start:** unzip → put `dsh-launcher` next to this folder → run `检查依赖.cmd` → `修复快捷方式.cmd` → `DSH 浏览器.cmd`.
 
-**License:** MIT. The icon is derived from the DSH web favicon and is used for identification only.
+**License:** MIT. Icon attribution: see Known limitations.
