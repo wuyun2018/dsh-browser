@@ -1,4 +1,4 @@
-﻿# DSH 浏览器 - 环境自检（分享给他人 / 换机后先跑这个）
+﻿# DSH 浏览器 - 环境自检（换机后先跑这个）
 # 只读检查：不启动服务、不修改配置、不创建目录。
 $ErrorActionPreference = 'SilentlyContinue'
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -43,13 +43,13 @@ else { Add-Result 'Windows PowerShell' 'FAIL' ("版本 {0} 过低" -f $psv) '升
 # ---- 2. 项目文件 ----
 foreach ($f in @('launcher.ps1', 'common.ps1', 'launcher-hidden.vbs', 'config.ini', 'watchdog.exe', 'DSH-favicon.ico', 'README.md', 'LICENSE')) {
     if (Test-Path -LiteralPath (Join-Path $root $f)) { Add-Result ("项目文件 {0}" -f $f) 'PASS' '' }
-    else { Add-Result ("项目文件 {0}" -f $f) 'FAIL' '文件缺失，请重新解压完整的分享包' '重新解压分享包' }
+    else { Add-Result ("项目文件 {0}" -f $f) 'FAIL' '文件缺失，请重新解压完整的发布包' '重新解压发布包' }
 }
 
 # ---- 2b. 一键重启（可选组件，缺失只 WARN）----
 foreach ($f in @('restart-dsh.ps1', '重启 DSH.vbs', '重启 DSH（带日志）.cmd')) {
     if (Test-Path -LiteralPath (Join-Path $root $f)) { Add-Result ("一键重启 {0}" -f $f) 'PASS' '' }
-    else { Add-Result ("一键重启 {0}" -f $f) 'WARN' '可选组件缺失：一键重启不可用（不影响正常启动）' '从完整版本复制该文件，或重新解压分享包' }
+    else { Add-Result ("一键重启 {0}" -f $f) 'WARN' '可选组件缺失：一键重启不可用（不影响正常启动）' '从完整版本复制该文件，或重新解压发布包' }
 }
 
 # ---- 3. 浏览器 ----
@@ -214,8 +214,8 @@ foreach ($d in @('profile', 'logs', 'state')) {
         if ($sz -gt 0) { $dirty += ("{0}（{1:N1}MB）" -f $d, ($sz / 1MB)) }
     }
 }
-if ($dirty.Count -eq 0) { Add-Result '运行期数据（分享前检查）' 'PASS' 'profile/logs/state 为空或不存在' }
-else { Add-Result '运行期数据（分享前检查）' 'WARN' ('含个人数据：' + ($dirty -join '、')) '分享/打包前先双击「清理隐私数据.cmd」选 [2]，或直接删除这三个目录' }
+if ($dirty.Count -eq 0) { Add-Result '运行期数据（含个人数据）' 'PASS' 'profile/logs/state 为空或不存在' }
+else { Add-Result '运行期数据（含个人数据）' 'WARN' ('含个人数据：' + ($dirty -join '、')) '请先双击「清理隐私数据.cmd」选 [2]，或直接删除这三个目录' }
 
 Write-Host ''
 Write-Host '=================================================='
@@ -226,7 +226,7 @@ if ($fail -gt 0) {
     exit 1
 }
 if ($warn -gt 0) {
-    Write-Host '有 WARN 项：一般不影响使用；分享/移动后建议按提示处理。' -ForegroundColor Yellow
+    Write-Host '有 WARN 项：一般不影响使用；移动后建议按提示处理。' -ForegroundColor Yellow
 }
 Write-Host '检查完成。'
 exit 0

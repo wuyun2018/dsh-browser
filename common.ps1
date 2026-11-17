@@ -1,9 +1,8 @@
 ﻿# ============================================================================
 #  DSH 浏览器 / 一键重启 —— 共享函数库（common.ps1）
 #
-#  launcher.ps1 与 restart-dsh.ps1 都 dot-source 本文件。历史上这些函数在两个
-#  脚本里各写一份，已经漂移过一次（互斥等待 150000 → 270000 只改了一处），
-#  所以统一到这里，只保留唯一实现。
+#  launcher.ps1 与 restart-dsh.ps1 都 dot-source 本文件，共用这里的唯一实现。
+#  两个脚本都要用的新逻辑请加在这里，不要在两处各写一份。
 #
 #  约定：
 #    * 调用方必须先设置 $script:Root（项目根目录）：Resolve-ProjectPath /
@@ -142,7 +141,7 @@ function Test-TokenUrl {
 
 function Get-DshHome {
     # DSH 的安装/配置根目录：优先 DSH_HOME，否则用 ~/.dsh。
-    # 分享包不能把某台机器的安装根目录写死，否则换机后默认探测路径必坏。
+    # 不能把某台机器的安装根目录写死，否则换机后默认探测路径必坏。
     if (-not [string]::IsNullOrWhiteSpace($env:DSH_HOME)) { return $env:DSH_HOME }
     return (Join-Path $env:USERPROFILE '.dsh')
 }

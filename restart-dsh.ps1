@@ -1,11 +1,11 @@
 ﻿# ============================================================================
 #  DSH 一键重启（restart-dsh.ps1）
 #
-#  本机 DSH 的真实运行链（由本目录 launcher.ps1 拉起）：
+#  DSH 的真实运行链（由本目录 launcher.ps1 拉起）：
 #    DSH.lnk → wscript launcher-hidden.vbs → powershell launcher.ps1 (隐藏)
 #      → node start-dsh-web.mjs --port 3080 --no-browser --workspace ...
 #          → node ...\@deepseek-ai\dsh\lib\bin.js web --port 3080 --no-open
-#              → 插件子进程（如 billion-context）
+#              → DSH 插件子进程
 #      → msedge.exe --app=http://127.0.0.1:3080/?token=*** --user-data-dir=<本目录>\profile
 #      → watchdog.exe --browser-pid <edge> --port 3080（浏览器关窗后停服务）
 #
@@ -13,7 +13,7 @@
 #    1) 完全停止：watchdog → 残留启动器 → DSH 浏览器窗口（先优雅关窗，超时再硬杀）
 #                 → 服务进程树（对 start-dsh-web.mjs 包装进程 taskkill /T，宿主与插件子进程一起结束），
 #                 直到端口释放且无残留进程；
-#    2) 重新拉起：以隐藏方式调用本目录 launcher.ps1（本机唯一正常入口），
+#    2) 重新拉起：以隐藏方式调用本目录 launcher.ps1（与双击「DSH 浏览器.cmd」同一条启动路径），
 #                 由它 start-dsh-web.mjs → dsh web，并打开 DSH 专用浏览器窗口。
 #
 #  入口：
@@ -27,7 +27,7 @@
 #      也不碰其它 DSH 实例（例如 <DSH_HOME>\instances\* 上的 3082）。
 #    * 端口被"非 DSH 程序"占用时只报错，绝不盲杀。
 #    * 无交互确认（一键）；失败才弹窗；全程写 logs\restart.log（令牌已脱敏）。
-#    * 兼容 Windows PowerShell 5.1（本机没有 pwsh 7）。
+#    * 兼容 Windows PowerShell 5.1（不依赖 PowerShell 7）。
 # ============================================================================
 
 param(
@@ -56,13 +56,13 @@ $script:DetachTaskName = 'DSH one-click restart (detached)'
 # ---------------------------------------------------------------- 共享函数库
 # Mask-Secrets / Read-Config / Get-ConfigValue / Resolve-ProjectPath / Get-ListenerPid
 # Get-StateDir / Get-UrlFromState / Test-TokenUrl 统一放在 common.ps1，与
-# launcher.ps1 共用同一份实现（以前各写一份，改了一处忘了另一处）。
+# launcher.ps1 共用同一份实现。
 $script:CommonPath = Join-Path $script:Root 'common.ps1'
 if (-not (Test-Path -LiteralPath $script:CommonPath)) {
     if (-not $script:NoPopup) {
         try {
             $shell = New-Object -ComObject WScript.Shell
-            $text = ("缺少共享函数库 common.ps1：`n{0}`n`n请重新解压完整的分享包，或从备份恢复该文件。" -f $script:CommonPath)
+            $text = ("缺少共享函数库 common.ps1：`n{0}`n`n请重新解压完整的发布包，或从备份恢复该文件。" -f $script:CommonPath)
             $null = $shell.Popup($text, 30, 'DSH 重启失败', 16)
         } catch { }
     }
@@ -422,7 +422,7 @@ function Get-BrowserWindowPid {
 # ---------------------------------------------------------------- 启动
 function Start-DshLauncher {
     param([string]$LauncherPath, [string]$ConfigPath = '')
-    # 兼容旧版 launcher.ps1（例如 10-19 的分享包）：先探测它认识哪些开关，
+    # 先探测 launcher.ps1 认识哪些开关，
     # 不认识的绝不能传，否则 powershell -File 会直接因“找不到参数”退出。
     $launcherText = ''
     try { $launcherText = Get-Content -LiteralPath $LauncherPath -Raw -Encoding UTF8 } catch { }
@@ -430,7 +430,7 @@ function Start-DshLauncher {
     $supportsStrict = [bool]($launcherText -match '(?m)^\s*\[switch\]\s*\$StrictExitCode\b')
     $supportsOperationLock = [bool]($launcherText -match '(?m)^\s*\[switch\]\s*\$OperationLockHeld\b')
     $supportsConfigPath = [bool]($launcherText -match '(?m)^\s*\[string\]\s*\$ConfigPath\b')
-    if (-not $supportsNoPopup) { Write-RestartLog '警告：launcher.ps1 不支持 -NoPopup，本次不传该参数（旧版可能弹窗）。' }
+    if (-not $supportsNoPopup) { Write-RestartLog '警告：launcher.ps1 不支持 -NoPopup，本次不传该参数。' }
 
     $launcherArgs = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{0}"' -f $LauncherPath
     if ($supportsOperationLock) { $launcherArgs += ' -OperationLockHeld' }
@@ -775,7 +775,7 @@ function Invoke-Main {
             Clear-StaleState -PidFile $pidFile -StateDir $stateDir
         }
 
-        # ---- 4. 启动（走本机唯一正常入口 launcher.ps1，无命令窗口）
+        # ---- 4. 启动（走 launcher.ps1，无命令窗口）
         Say ''
         Say '[2/3] 启动 DSH（start-dsh-web.mjs → dsh web，并打开 DSH 浏览器窗口）…'
         $bootAt = Get-Date

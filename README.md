@@ -1,4 +1,4 @@
-﻿# DSH 浏览器（dsh-browser）
+# DSH 浏览器（dsh-browser）
 
 > 为 **DeepSeek Harness（DSH）Web 端**打造的轻量 Windows 浏览器外壳：一键启动/复用 DSH 服务，用系统 Edge 的应用窗口打开 DSH Web，关闭窗口时自动停止服务。
 
@@ -23,7 +23,7 @@
 - [配置说明](#配置说明configini)
 - [常见问题 FAQ](#常见问题-faq)
 - [隐私与安全](#隐私与安全)
-- [移动 / 换机 / 分享给他人](#移动--换机--分享给他人)
+- [移动 / 换机](#移动--换机)
 - [开发说明](#开发说明)
 - [已知限制](#已知限制)
 - [贡献](#贡献)
@@ -40,7 +40,7 @@
 - 用 **系统 Microsoft Edge（Chromium）的 `--app` 应用模式**打开 DSH Web：没有标签栏、没有地址栏，像一个独立浏览器窗口；
 - 使用**独立的浏览器配置目录（profile）**，与你日常使用的 Edge 完全隔离；
 - 内置轻量监视器 `watchdog.exe`：窗口关闭时同步停止 DSH 服务，Node 进程不残留；
-- 附带隐私清理、快捷方式修复、环境自检等辅助脚本；REA MCP 与分享打包属于使用者后来添加的本地扩展，**不在本发布包内**。
+- 附带隐私清理、快捷方式修复、环境自检等辅助脚本。
 
 ---
 
@@ -48,13 +48,13 @@
 
 | 特性 | 说明 |
 |---|---|
-| 🪶 轻量省内存 | 应用窗口 + 精简启动参数 + 独立 profile；本机实测约 **250–340 MB 私有内存**（普通 Edge 窗口打开 DSH 通常 1 GB+） |
+| 🪶 轻量省内存 | 应用窗口 + 精简启动参数 + 独立 profile；典型约 **250–340 MB 私有内存**（普通 Edge 窗口打开 DSH 通常 1 GB+） |
 | 🧩 无地址栏/无标签页 | 用 Edge `--app` 模式打开，专注 DSH 界面 |
 | 🔁 自动服务生命周期 | 打开时自动启动/复用 DSH 服务；关闭窗口时由 watchdog 同步停止服务（可配置保留） |
 | 🔒 独立配置 | 独立 `profile` 目录，不共享日常浏览器的 Cookie/扩展/历史 |
 | 🎯 自动令牌 | 自动读取本次 DSH 启动的带令牌 URL，不会遇到 401 |
 | 🪟 重复打开不叠加 | 再次双击只把已有窗口切到前台，不会重复开窗占内存（若服务被手动停止后重开，请先关闭旧窗口） |
-| 🧹 隐私清理 | 一键清理 profile / logs / state / 令牌文件（分享前必备） |
+| 🧹 隐私清理 | 一键清理 profile / logs / state / 令牌文件（清理后可直接迁移或复制到其他机器） |
 | 🛠️ 快捷方式修复 | 移动目录后一键重建桌面/开始菜单/项目内快捷方式 |
 | 🩺 环境自检 | 检查 PowerShell / Edge / Node.js / dsh / 启动脚本 / 工作目录等 |
 | 🎨 统一图标 | 桌面/开始菜单/任务栏统一使用 DSH 网页自己的 favicon |
@@ -83,7 +83,7 @@
 
 安全设计：
 
-- DSH 令牌只在本机 `127.0.0.1` 使用，**不会写入日志**（`common.ps1` 的 `Mask-Secrets` 负责脱敏，launcher/restart 共用）；
+- DSH 令牌只在本地 `127.0.0.1` 使用，**不会写入日志**（`common.ps1` 的 `Mask-Secrets` 负责脱敏，launcher/restart 共用）；
 - DSH 服务的 stdout 含令牌，因此**直接丢弃**（重定向到 NUL），只保留 stderr 到 `%TEMP%\dsh-browser`；
 - 所有脚本不收集、不上传任何数据。
 
@@ -173,12 +173,10 @@ dsh-browser/
 | `重启 DSH（带日志）.cmd` | 一键重启（可见） | 同上，但在控制台里显示每一步；失败会停住并打印退出码与 `logs\restart.log` 路径；加 `-DryRun` 只预览计划 |
 | `restart-dsh.ps1` | 重启引擎 | 支持 `-DryRun` 预览、`-Quiet` 静默、`-NoPopup` 不弹窗、`-BootTimeoutSec`/`-StopTimeoutSec`；在 DSH 终端里运行时会自动脱钩
 | `检查状态.cmd` | 状态检查 | 打印 root/端口/浏览器/启动脚本/node/dsh/工作目录 |
-| `检查依赖.cmd` | 环境自检 | 换机/分享后先跑；逐项 PASS/WARN/FAIL |
+| `检查依赖.cmd` | 环境自检 | 换机后先跑；逐项 PASS/WARN/FAIL |
 | `停止 DSH 服务.cmd` | 停止服务 | 手动停止 DSH 服务（含确认提示） |
 | `清理隐私数据.cmd` | 隐私清理 | `[1]` 仅清日志；`[2]` 完整清理（会关闭窗口并停服务）；脚本支持 `-DryRun` 预览、`-Yes` 非交互完整清理 |
 | `修复快捷方式.cmd` | 重建快捷方式 | 移动目录后必须执行 |
-
-> 本发布包只包含启动器核心功能；REA MCP 与分享打包属于使用者后来添加的本地扩展，不属于本仓库的发布边界。
 
 ---
 
@@ -220,26 +218,23 @@ dsh-browser/
 快捷方式记录的是绝对路径。移动后在新位置双击「修复快捷方式.cmd」重建即可；再用「检查状态.cmd」核对路径。
 
 **Q6：内存占用多少？**
-本机实测：浏览器窗口约 250–340 MB 私有内存（取决于页面里打开的会话内容）；普通 Edge 窗口打开 DSH 通常 1 GB+。关闭窗口后 DSH 服务也会停止，整套内存释放。
+典型占用：浏览器窗口约 250–340 MB 私有内存（取决于页面里打开的会话内容）；普通 Edge 窗口打开 DSH 通常 1 GB+。关闭窗口后 DSH 服务也会停止，整套内存释放。
 
-**Q7：为什么仓库里没有 REA MCP / 打包分享脚本？**
-REA MCP 与分享包生成是后期使用者额外添加的本地扩展，不属于本项目核心发布边界；本仓库只发布启动器、服务生命周期、watchdog、隐私清理、快捷方式修复和环境自检。
-
-**Q8：图标是哪来的？**
+**Q7：图标是哪来的？**
 取自 DSH 网页自己的 favicon（与任务栏图标一致），仅用于标识本工具；版权归 DeepSeek Harness 项目所有。
 
-**Q9：从 GitHub 下载后首次运行弹"安全警告"，或杀毒软件报 `watchdog.exe` 可疑？**
+**Q8：从 GitHub 下载后首次运行弹"安全警告"，或杀毒软件报 `watchdog.exe` 可疑？**
 这是 Windows 对下载文件的正常保护（MOTW），不是病毒。处理方式：
 - 弹窗选"打开"；
 - 或解压前右键 ZIP → 属性 → 勾选"解除锁定"；
 - 杀毒软件误报时，将 `watchdog.exe` 加入信任/白名单（它是本项目自带源码 `watchdog.cs` 编译的简单监视器，可自行用 `csc` 重新编译核对）。
 
-**Q10：为什么 `watchdog.exe` 没有窗口/看不到？**
+**Q9：为什么 `watchdog.exe` 没有窗口/看不到？**
 它是隐藏运行的轻量监视器（约 12MB 内存），只负责"浏览器窗口关闭 → 停止 DSH 服务"，任务管理器里能看到但无界面，属正常现象。
 
-**Q11：启动很慢，或者弹「DSH 启动失败（退出码 1）」，但窗口其实能打开？**
+**Q10：启动很慢，或者弹「DSH 启动失败（退出码 1）」，但窗口其实能打开？**
 先分清"真失败"和"预算到了"。`launcher.ps1` 有一个启动预算 `START_TIMEOUT_SEC`（默认 240 秒）：预算内没拿到带令牌 URL 就报失败。
-本机 2026-11-05 的真实事故：冷启动用了 **164.8 秒**，而当时预算是硬编码 120 秒 → 启动器先报失败，服务在 40 秒后才就绪，用户以为坏了。
+启动时间取决于机器负载、Node.js 冷启动和已安装插件；冷启动超过 2 分钟并不罕见。默认预算已留出余量，必要时可按下面的方法调整。
 处理：
 - 看 `logs\launcher.log` 里「服务启动预算 N 秒」到「DSH 服务就绪」的间隔，接近预算就调大 `START_TIMEOUT_SEC`（最多建议 260，别超过启动器 270 秒的单实例锁）；
 - 用「重启 DSH」时更宽容：启动器按自己的预算退出、但端口已在监听时，`restart-dsh.ps1` 会继续等到 `-BootTimeoutSec`（默认 300 秒），服务就绪后再补一次启动器把窗口打开——所以一键重启报的"失败"比启动器自己的弹窗可信；
@@ -247,36 +242,26 @@ REA MCP 与分享包生成是后期使用者额外添加的本地扩展，不属
 - `restart-dsh.ps1 -StrictExitCode` 另外用 **3** 表示 DryRun、**5** 表示已脱钩交给后台；不加 `-StrictExitCode` 时仍沿用旧行为返回 0；
 - 日志里出现 `dsh: warning: N entries did not activate` 说明有插件没激活（功能会缺一块），一键重启结束时会把这类告警打出来。
 
-**Q12：一键重启后，输入框左下角的「修改权限」不见了，设置里显示「不可用」？**
-这是 DSH 侧的插件组合问题，不是本工具的 bug：`dsh-permission-presets` 要求 `sandbox-policy.mode` 与 `approval.policy` 的组合能匹配到某个预设，`danger-full-access + ask` 匹配不到任何预设 → 插件构造时抛错 → `permissionPresets` 服务不存在 → 客户端不渲染该控件（会话区控件直接消失），连带 `auto-review` 一直 pending。
-修法（改 profile 的 `cordis.patch.yml`，两者配套）：
-- `sandbox-policy.mode: danger-full-access` + `approval.policy: never`；或
-- `sandbox-policy.mode: workspace-write` + `approval.policy: ask`。
-注意 `cordis.patch.yml` 的 `config:` 是**整块替换**而不是深合并：不要用它去只改 `permission.defaultPreset`，那会把只读/工作区两个预设定整段覆盖掉。排查时看宿主 stderr 里的 `permission (...): Error: permission: composed sandbox and approval defaults match no preset` 即可确诊。
+**Q11：DSH 页面里的「权限」相关控件缺失或点不动？**
+这属于 DSH 侧的配置问题，与本启动器无关。请检查 DSH 自身的权限/沙箱配置是否把权限控件关掉了；改动 DSH 配置后需要重启 Web 服务才生效。
 
 ---
 
 ## 隐私与安全
 
 - 本工具**不收集、不上传**任何数据；
-- 运行期会生成 `profile\`（浏览器用户数据，可能包含 Microsoft 账号登录信息、DSH 会话 Cookie、历史等）、`logs\`（启动日志，令牌已脱敏，但可能包含本机路径）、`state\`（PID/标志；可能包含明文 `url.txt` 令牌文件）；
-- 发布/上传前请先双击「清理隐私数据.cmd」选 `[2]` 完整清理，或直接删除这三个目录；
-- 发布包不包含打包/REA 扩展；需要自行分享时请手动压缩，并排除上述目录、`*.lnk` 与旧图标；
+- 运行期会生成 `profile\`（浏览器用户数据，可能包含 Microsoft 账号登录信息、DSH 会话 Cookie、历史等）、`logs\`（启动日志，令牌已脱敏，但可能包含绝对路径）、`state\`（PID/标志；可能包含明文 `url.txt` 令牌文件）；
+- 清理或迁移前请先双击「清理隐私数据.cmd」选 `[2]` 完整清理，或直接删除这三个目录；
+- 复制或迁移到其他机器前，请先清理上述运行期目录，并排除 `*.lnk` 与旧图标；
 - DSH 令牌只在本地 `127.0.0.1` 使用；日志中的令牌一律打码为 `?token=***`；服务 stdout（含令牌）直接丢弃不落盘。注意：Edge 的 `--app=<令牌 URL>` 命令行在 Windows 进程列表中可见，这是应用模式本身的限制，工具无法完全隐藏。
 
 ---
 
-## 移动 / 换机 / 分享给他人
+## 移动 / 换机
 
 **移动目录**：先关闭 DSH 浏览器窗口（等待 watchdog 停服务）→ 移动整个文件夹 → 在新位置双击「修复快捷方式.cmd」→「检查状态.cmd」核对。
 
-**分享给他人**：本发布包不包含打包脚本。需要分享时：
-1. 关闭窗口 → 「清理隐私数据.cmd」选 `[2]`；
-2. 手动压缩整个文件夹，排除 `profile/`、`logs/`、`state/`、`*.lnk`；
-3. 把 ZIP（以及可选的 `dsh-launcher` 目录）发给对方；
-4. 对方解压 → 把 `dsh-launcher` 放同级 → 「检查依赖.cmd」全 PASS → 「修复快捷方式.cmd」→ 使用。
-
-**换机/跨机器**：默认配置已做适配（`LAUNCHER_SCRIPT` 自动探测、`WORKSPACE` 用 `%USERPROFILE%`、`NODE_PATH` 自动、`profile/state` 相对或 `%LOCALAPPDATA%`）。对方仍需自己的 Node.js、dsh CLI、dsh-launcher。
+**换机/跨机器**：默认配置已做适配（`LAUNCHER_SCRIPT` 自动探测、`WORKSPACE` 用 `%USERPROFILE%`、`NODE_PATH` 自动、`profile/state` 相对或 `%LOCALAPPDATA%`）。新机器仍需自己的 Node.js、dsh CLI、dsh-launcher。
 
 ---
 
@@ -334,7 +319,7 @@ REA MCP 与分享包生成是后期使用者额外添加的本地扩展，不属
 
 ## English Summary
 
-A lightweight Windows launcher/shell for the **DeepSeek Harness (DSH)** web UI. Instead of bundling a browser, it opens the local DSH web app in a dedicated **Microsoft Edge app-mode window** (separate profile, minimal flags), automatically starts/reuses the DSH server, and stops it when the window closes via a small `watchdog.exe`. It also ships privacy cleanup, shortcut repair, and environment self-check. REA MCP and share-package generation are local extensions and are not part of this release.
+A lightweight Windows launcher/shell for the **DeepSeek Harness (DSH)** web UI. Instead of bundling a browser, it opens the local DSH web app in a dedicated **Microsoft Edge app-mode window** (separate profile, minimal flags), automatically starts/reuses the DSH server, and stops it when the window closes via a small `watchdog.exe`. It also ships privacy cleanup, shortcut repair, and environment self-check.
 
 **Requirements:** Windows 10/11, Microsoft Edge, Windows PowerShell 5.1, Node.js, DeepSeek Harness (`npm i -g @deepseek-ai/dsh`), and your own `dsh-launcher/start-dsh-web.mjs`.
 

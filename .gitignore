@@ -2,16 +2,12 @@
 profile/
 logs/
 state/
-backup/
-tests/
-workspace/
-review/
 
-# 本机快捷方式与旧个人图标
+# 快捷方式与自定义图标
 *.lnk
 DSH-custom.ico
 
-# 打包/日志/临时文件
+# 压缩包/日志/临时文件
 *.zip
 *.log
 *.tmp
@@ -19,7 +15,7 @@ DSH-custom.ico
 *.bak-*
 *~
 
-# 本机文档（仓库使用 README.md）
+# 本地文档（仓库使用 README.md）
 README.txt
 
 # 编辑器 / 系统

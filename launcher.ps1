@@ -22,12 +22,12 @@ if ([string]::IsNullOrWhiteSpace($ConfigPath)) { $ConfigPath = Join-Path $script
 # ---------------------------------------------------------------- 共享函数库
 # Mask-Secrets / Read-Config / Get-ConfigValue / Resolve-ProjectPath / Get-ListenerPid
 # Get-StateDir / Get-UrlFromState / Test-TokenUrl 统一放在 common.ps1，与
-# restart-dsh.ps1 共用同一份实现（以前各写一份，改了一处忘了另一处）。
+# restart-dsh.ps1 共用同一份实现。
 $script:CommonPath = Join-Path $script:Root 'common.ps1'
 if (-not (Test-Path -LiteralPath $script:CommonPath)) {
     try {
         $shell = New-Object -ComObject WScript.Shell
-        $text = ("缺少共享函数库 common.ps1：`n{0}`n`n请重新解压完整的分享包，或从备份恢复该文件。" -f $script:CommonPath)
+        $text = ("缺少共享函数库 common.ps1：`n{0}`n`n请重新解压完整的发布包，或从备份恢复该文件。" -f $script:CommonPath)
         $null = $shell.Popup($text, 30, 'DSH 浏览器 - 启动失败', 16)
     } catch { }
     exit 1
@@ -264,7 +264,7 @@ function Start-DshServer {
 
     $dshArgs = @($launcher, '--port', [string]$Port, '--no-browser')
     # 工作目录：留空时用跨机器的默认位置（%USERPROFILE%\Documents\deepseek-harness\default-workspace），
-    # 这样把本工具分享给别人后也能直接用；目录不存在会自动创建。
+    # 这样把本工具复制到其他机器后也能直接用；目录不存在会自动创建。
     $workspace = Get-ConfigValue $Config 'WORKSPACE' ''
     if ($workspace) { $workspace = Resolve-ProjectPath $workspace }
     if (-not $workspace) { $workspace = Join-Path $env:USERPROFILE 'Documents\deepseek-harness\default-workspace' }
@@ -517,7 +517,7 @@ try {
         $workspaceForCheck = Get-ConfigValue $cfg 'WORKSPACE' ''
         if (-not $workspaceForCheck) { $workspaceForCheck = Join-Path $env:USERPROFILE 'Documents\deepseek-harness\default-workspace' }
         Write-Host "workspace   : $workspaceForCheck"
-        Write-Host "说明        : 分享给他人时，把 dsh-launcher 目录放到本项目同级（或在 config.ini 写 LAUNCHER_SCRIPT），详见 README 的「移动 / 换机 / 分享给他人」章节。"
+        Write-Host "说明        : 迁移到其他机器时，把 dsh-launcher 目录放到本项目同级（或在 config.ini 写 LAUNCHER_SCRIPT），详见 README 的「移动 / 换机」章节。"
         exit 0
     }
 
@@ -640,7 +640,7 @@ try {
     }
 
     # 上一个窗口关闭时 watchdog 可能正在停止服务：此时端口上的 DSH 只是「还没来得及退出」的旧实例，
-    # 直接复用会让新窗口刚打开就断线（2026-10-28 08:54 实际故障）。检测到这种正在收尾的监视器就先等它停完。
+    # 直接复用会让新窗口刚打开就断线。检测到这种正在收尾的监视器就先等它停完。
     if ($kind -eq 'dsh') {
         $pendingWatchdogs = @()
         try {

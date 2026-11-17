@@ -1,7 +1,7 @@
 // DSH 浏览器 - 关闭监视器
 // 等待 DSH 浏览器窗口进程退出，然后停止 DSH 服务（Node.js）。
 // 编译（Windows 自带 .NET Framework 4.x）：
-//   csc.exe /nologo /target:winexe /optimize+ /codepage:65001 /out:watchdog.exe /win32icon:DSH.ico watchdog.cs
+//   csc.exe /nologo /target:winexe /optimize+ /codepage:65001 /r:System.Management.dll /out:watchdog.exe /win32icon:DSH.ico watchdog.cs
 using System;
 using System.Diagnostics;
 using System.IO;
