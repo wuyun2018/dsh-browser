@@ -8,6 +8,8 @@ param(
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $launcher = Join-Path $root 'launcher.ps1'
+# 零窗口入口：存在时快捷方式指向 wscript + 这个 VBS，双击时完全不会创建控制台窗口。
+$hiddenLauncher = Join-Path $root 'launcher-hidden.vbs'
 # 优先使用 DSH-favicon.ico（内容取自 DSH 网页 favicon，与任务栏图标一致）；
 # 换新文件名是为了让 Windows 图标缓存必定刷新。没有时回退 DSH.ico。
 $icon = Join-Path $root 'DSH-favicon.ico'
@@ -28,11 +30,37 @@ if (-not (Test-Path -LiteralPath $launcher)) {
 }
 
 $ws = New-Object -ComObject WScript.Shell
+# 优先复用已存在的、确实指向本项目的入口（用户可能把它命名为 DeepSeek.lnk），
+# 避免修复时又新建一个 DSH 浏览器.lnk 造成桌面/开始菜单重复。
+function Test-LauncherShortcut {
+    param([string]$Path)
+    if (-not (Test-Path -LiteralPath $Path)) { return $false }
+    try {
+        $sh = $ws.CreateShortcut($Path)
+        $hay = ([string]$sh.TargetPath) + ' ' + ([string]$sh.Arguments)
+        if ($hay.IndexOf($root, [System.StringComparison]::OrdinalIgnoreCase) -lt 0) { return $false }
+        return ($hay -match '(?i)launcher\.ps1|launcher-hidden\.vbs')
+    } catch { return $false }
+}
+function Find-LauncherShortcut {
+    param([string]$Dir)
+    if (-not (Test-Path -LiteralPath $Dir)) { return $null }
+    foreach ($f in @(Get-ChildItem -LiteralPath $Dir -Filter '*.lnk' -File -Recurse -ErrorAction SilentlyContinue)) {
+        if (Test-LauncherShortcut $f.FullName) { return $f.FullName }
+    }
+    return $null
+}
+$desktopDir = [Environment]::GetFolderPath('Desktop')
+$menuDir = [Environment]::GetFolderPath('Programs')
+$desktopLnk = Find-LauncherShortcut $desktopDir
+if (-not $desktopLnk) { $desktopLnk = Join-Path $desktopDir 'DSH 浏览器.lnk' }
+$menuLnk = Find-LauncherShortcut $menuDir
+if (-not $menuLnk) { $menuLnk = Join-Path $menuDir 'DSH 浏览器.lnk' }
 $shortcutPaths = @(
-    (Join-Path ([Environment]::GetFolderPath('Desktop')) 'DSH 浏览器.lnk'),
-    (Join-Path ([Environment]::GetFolderPath('Programs')) 'DSH 浏览器.lnk'),
+    $desktopLnk,
+    $menuLnk,
     (Join-Path $root 'DSH 浏览器.lnk')
-)
+) | Select-Object -Unique
 
 $done = @()
 $failed = @()
@@ -42,8 +70,13 @@ foreach ($path in $shortcutPaths) {
         $dir = Split-Path -Parent $path
         if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
         $lnk = $ws.CreateShortcut($path)
-        $lnk.TargetPath = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-        $lnk.Arguments = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $launcher + '"'
+        if (Test-Path -LiteralPath $hiddenLauncher) {
+            $lnk.TargetPath = Join-Path $env:SystemRoot 'System32\wscript.exe'
+            $lnk.Arguments = '"' + $hiddenLauncher + '"'
+        } else {
+            $lnk.TargetPath = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+            $lnk.Arguments = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $launcher + '"'
+        }
         $lnk.WorkingDirectory = $root
         if (Test-Path -LiteralPath $icon) { $lnk.IconLocation = ($icon + ',0') }
         $lnk.Description = 'DSH 专用低内存浏览器（自动启动 DSH Web）'
@@ -53,6 +86,29 @@ foreach ($path in $shortcutPaths) {
         $done += $path
     } catch {
         $failed += ($path + " -> " + $_.Exception.Message)
+    }
+}
+
+# 一键重启快捷方式（桌面）：只在「重启 DSH.vbs」存在时创建
+$restartVbs = Join-Path $root '重启 DSH.vbs'
+$restartLnk = Join-Path ([Environment]::GetFolderPath('Desktop')) 'DSH 重启.lnk'
+if (Test-Path -LiteralPath $restartVbs) {
+    if ($DryRun) { Write-Host ("[预览] " + $restartLnk + "  ->  " + $restartVbs) }
+    else {
+        try {
+            $lnk = $ws.CreateShortcut($restartLnk)
+            $lnk.TargetPath = Join-Path $env:SystemRoot 'System32\wscript.exe'
+            $lnk.Arguments = '"' + $restartVbs + '"'
+            $lnk.WorkingDirectory = $root
+            if (Test-Path -LiteralPath $icon) { $lnk.IconLocation = ($icon + ',0') }
+            $lnk.Description = '一键重启 DSH：完全关闭服务/浏览器/监视器后重新拉起'
+            $lnk.WindowStyle = 7
+            $lnk.Save()
+            Write-Host ("已重建：" + $restartLnk)
+            $done += $restartLnk
+        } catch {
+            $failed += ($restartLnk + " -> " + $_.Exception.Message)
+        }
     }
 }
 

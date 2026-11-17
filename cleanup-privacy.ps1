@@ -1,7 +1,11 @@
 ﻿# DSH 浏览器 - 隐私数据清理工具（Windows PowerShell 5.1）
-# 只清理本工具自己生成的数据：logs\ / state\ / profile\ / %LOCALAPPDATA%\dsh-web\url.txt
-# 不会删除 DSH_HOME（DSH 自身配置与会话）或 D:\tools\dsh-launcher（默认探测路径）。
-param([switch]$DryRun)
+# 只清理本工具自己生成的数据：logs\ / state\ / profile\ / shortcut-backup\ /
+# *.bak* / %LOCALAPPDATA%\dsh-web\url.txt / 临时重启计划任务。
+# 不会删除 DSH_HOME（DSH 自身配置与会话）或 dsh-launcher（默认探测路径）。
+param(
+    [switch]$DryRun,
+    [switch]$Yes   # 自动化/测试：直接选择完整清理，不再交互询问
+)
 $ErrorActionPreference = 'SilentlyContinue'
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 
@@ -30,6 +34,16 @@ function Get-ProfileBrowsers {
     # 不限定进程名：兼容 Edge/Chrome 以及 BROWSER_PATH 指定的任意 Chromium 分支
     Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
         Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -and $_.CommandLine.Contains($profileDir) }
+}
+function Test-DshProcess {
+    param([int]$ProcessId)
+    if ($ProcessId -le 0) { return $false }
+    try {
+        $p = Get-CimInstance Win32_Process -Filter ("ProcessId={0}" -f $ProcessId) -ErrorAction SilentlyContinue
+        if (-not $p -or -not $p.CommandLine) { return $false }
+        if ($p.Name -notmatch '^node(\.exe)?$') { return $false }
+        return ($p.CommandLine -match 'start-dsh-web\.mjs|@deepseek-ai[\\/]dsh|dsh[\\/]lib[\\/]bin\.js')
+    } catch { return $false }
 }
 function Format-Size([long]$n) {
     if ($n -ge 1MB) { '{0:N1} MB' -f ($n / 1MB) }
@@ -95,6 +109,36 @@ function Clear-Logs {
     try { Remove-Tree (Assert-SafeDeleteTarget $tempLogs) }
     catch { Write-Host ("  [拒绝] " + $_.Exception.Message) -ForegroundColor Red }
 }
+function Clear-ProjectBackups {
+    Write-Host '[1b/3] 清理项目内的备份残留（shortcut-backup / *.bak*）…'
+    $backupDir = Join-Path $root 'shortcut-backup'
+    if (Test-Path -LiteralPath $backupDir) {
+        try { Remove-Tree (Assert-SafeDeleteTarget $backupDir) }
+        catch { Write-Host ('  [拒绝] ' + $_.Exception.Message) -ForegroundColor Yellow }
+    } else {
+        Write-Host '  [跳过] 没有 shortcut-backup 目录'
+    }
+    $baks = @(Get-ChildItem -LiteralPath $root -Filter '*.bak*' -File -Force -ErrorAction SilentlyContinue)
+    foreach ($f in $baks) {
+        Remove-Item -LiteralPath $f.FullName -Force -ErrorAction SilentlyContinue
+        if (Test-Path -LiteralPath $f.FullName) { Write-Host ('  [失败] 文件被占用：' + $f.FullName) -ForegroundColor Yellow }
+        else { Write-Host ('  [已删除] ' + $f.FullName) -ForegroundColor Green }
+    }
+    if ($baks.Count -eq 0) { Write-Host '  [跳过] 没有 *.bak* 文件' }
+}
+function Clear-StaleRestartTask {
+    $taskName = 'DSH one-click restart (detached)'
+    $query = @(& schtasks.exe /Query /TN $taskName /FO LIST /V 2>$null)
+    if ($LASTEXITCODE -ne 0) { return }
+    $text = ($query -join "`n")
+    if ($text -match '(?im)^(Status|状态)\s*:\s*(Running|正在运行)') {
+        Write-Host '[跳过] 一键重启的临时计划任务正在运行。' -ForegroundColor Yellow
+        return
+    }
+    $null = & schtasks.exe /Delete /TN $taskName /F 2>&1
+    if ($LASTEXITCODE -eq 0) { Write-Host '[已删除] 一键重启的临时计划任务。' -ForegroundColor Green }
+    else { Write-Host '[跳过] 临时计划任务删除失败（可能已被重启脚本清理）。' -ForegroundColor Yellow }
+}
 function Clear-TokenState {
     try { $null = Assert-SafeDeleteTarget $stateDir }
     catch { Write-Host ("  [拒绝] 令牌目录不在白名单内，跳过删除：" + $_.Exception.Message) -ForegroundColor Yellow; return }
@@ -112,18 +156,20 @@ Write-Host '将清理本工具自己生成的数据：'
 Write-Host ("  logs    : {0}" -f $logsDir)
 Write-Host ("  state   : {0}" -f $stateLocal)
 Write-Host ("  profile : {0}" -f $profileDir)
+Write-Host ("  备份残留: {0}" -f (Join-Path $root 'shortcut-backup'))
 Write-Host ("  令牌文件: {0}" -f (Join-Path $stateDir 'url.txt'))
-Write-Host '不会删除 DSH_HOME（DSH 配置/会话）与 D:\tools\dsh-launcher（默认探测路径）。'
+Write-Host '不会删除 DSH_HOME（DSH 配置/会话）与 dsh-launcher（默认探测路径）。'
 Write-Host ''
 if ($DryRun) {
     Write-Host '[DryRun] 仅校验路径与配置，不删除任何文件。' -ForegroundColor Cyan
     $fail = 0
     $targets = @(
-        @{ Name = 'logs';     Path = $logsDir },
-        @{ Name = '临时日志'; Path = $tempLogs },
-        @{ Name = 'state';    Path = $stateLocal },
-        @{ Name = 'profile';  Path = $profileDir },
-        @{ Name = '令牌目录'; Path = $stateDir }
+        @{ Name = 'logs';       Path = $logsDir },
+        @{ Name = '临时日志';   Path = $tempLogs },
+        @{ Name = 'state';      Path = $stateLocal },
+        @{ Name = 'profile';    Path = $profileDir },
+        @{ Name = '备份残留';   Path = (Join-Path $root 'shortcut-backup') },
+        @{ Name = '令牌目录';   Path = $stateDir }
     )
     foreach ($t in $targets) {
         try { $null = Assert-SafeDeleteTarget $t.Path; Write-Host ("  [OK] {0}: {1}" -f $t.Name, $t.Path) -ForegroundColor Green }
@@ -140,7 +186,12 @@ Write-Host '请选择：'
 Write-Host '  [1] 仅清理日志与临时日志（浏览器可保持打开，日常可用）'
 Write-Host '  [2] 完整清理（会关闭 DSH 浏览器并停止本工具启动的 DSH 服务；之后需重新打开）'
 Write-Host '  [0] 取消'
-$choice = Read-Host '输入 0/1/2 后回车'
+if ($Yes) {
+    $choice = '2'
+    Write-Host '[Yes] 自动选择完整清理。' -ForegroundColor Cyan
+} else {
+    $choice = Read-Host '输入 0/1/2 后回车'
+}
 if ($choice -eq '1') {
     Clear-Logs
     Write-Host ''
@@ -154,24 +205,49 @@ Write-Host '[完整清理] 检查 DSH 浏览器是否仍在运行…'
 $browsers = @(Get-ProfileBrowsers)
 if ($browsers.Count -gt 0) {
     Write-Host ("检测到 {0} 个使用本项目 profile 的浏览器进程。" -f $browsers.Count) -ForegroundColor Yellow
-    $ans = Read-Host '输入 y 由本工具结束这些进程（会丢失未保存的页面状态），或先手动关闭窗口后重试；继续？(y/N)'
-    if ($ans -notmatch '^(?i)y') { Write-Host '已取消，未做任何清理。'; exit 0 }
+    if ($Yes) {
+        Write-Host '[Yes] 自动结束这些浏览器进程。' -ForegroundColor Cyan
+    } else {
+        $ans = Read-Host '输入 y 由本工具结束这些进程（会丢失未保存的页面状态），或先手动关闭窗口后重试；继续？(y/N)'
+        if ($ans -notmatch '^(?i)y') { Write-Host '已取消，未做任何清理。'; exit 0 }
+    }
     $browsers | ForEach-Object { & taskkill.exe /PID $_.ProcessId /T /F 2>$null | Out-Null }
     Start-Sleep -Seconds 2
+}
+
+# 与启动/重启共用操作锁：清理期间不允许另一个 launcher/restart 并发改服务。
+$opMutex = $null
+$opTaken = $false
+try {
+    $opMutex = New-Object System.Threading.Mutex($false, 'Global\dsh-browser-operation')
+} catch {
+    try { $opMutex = New-Object System.Threading.Mutex($false, 'Local\dsh-browser-operation') } catch { $opMutex = $null }
+}
+if ($opMutex) {
+    try { $opTaken = $opMutex.WaitOne(0, $false) }
+    catch [System.Threading.AbandonedMutexException] { $opTaken = $true }
+    catch { $opTaken = $false }
+}
+if (-not $opTaken) {
+    Write-Host '另一个「启动 DSH / 一键重启」正在进行，已取消清理以免误停服务。' -ForegroundColor Yellow
+    exit 3
 }
 
 # 停止“本工具启动的”DSH 服务：优先用 state\server.pid；
 # 若 pid 文件缺失（例如被清理过），则从监听端口反查 start-dsh-web.mjs 包装进程链后停止。
 function Stop-DshService {
     $target = 0
-    $pidFile = Join-Path $stateLocal 'server.pid'
-    if (Test-Path -LiteralPath $pidFile) {
+    # 新版本 server.pid 是真实监听宿主（dsh\lib\bin.js），server-wrapper.pid 是
+    # start-dsh-web.mjs 包装进程。优先杀包装进程树；包装进程已退出时再杀监听者。
+    $pidFiles = @(
+        (Join-Path $stateLocal 'server-wrapper.pid'),
+        (Join-Path $stateLocal 'server.pid')
+    )
+    foreach ($pidFile in $pidFiles) {
+        if (-not (Test-Path -LiteralPath $pidFile)) { continue }
         $serverPid = 0
-        [int]::TryParse((Get-Content -LiteralPath $pidFile -Raw).Trim(), [ref]$serverPid) | Out-Null
-        if ($serverPid -gt 0) {
-            $p = Get-CimInstance Win32_Process -Filter "ProcessId=$serverPid" -ErrorAction SilentlyContinue
-            if ($p -and $p.CommandLine -like '*start-dsh-web.mjs*') { $target = $serverPid }
-        }
+        try { [int]::TryParse((Get-Content -LiteralPath $pidFile -Raw).Trim(), [ref]$serverPid) | Out-Null } catch { }
+        if ($serverPid -gt 0 -and (Test-DshProcess -ProcessId $serverPid)) { $target = $serverPid; break }
     }
     if ($target -le 0) {
         $line = @(& netstat.exe -ano 2>$null | Select-String 'LISTENING' | Select-String (':{0}\s' -f $port)) | Select-Object -First 1
@@ -180,10 +256,10 @@ function Stop-DshService {
             $listener = 0
             [int]::TryParse($parts[$parts.Count - 1], [ref]$listener) | Out-Null
             $cursor = $listener
-            for ($i = 0; $i -lt 3 -and $cursor -gt 0; $i++) {
+            for ($i = 0; $i -lt 4 -and $cursor -gt 0; $i++) {
+                if (Test-DshProcess -ProcessId $cursor) { $target = $cursor; break }
                 $proc = Get-CimInstance Win32_Process -Filter "ProcessId=$cursor" -ErrorAction SilentlyContinue
                 if (-not $proc) { break }
-                if ($proc.CommandLine -like '*start-dsh-web.mjs*') { $target = $cursor; break }
                 $cursor = [int]$proc.ParentProcessId
             }
         }
@@ -192,6 +268,8 @@ function Stop-DshService {
         Write-Host ("正在停止本工具启动的 DSH 服务（PID {0}）…" -f $target)
         & taskkill.exe /PID $target /T /F 2>$null | Out-Null
         Start-Sleep -Milliseconds 800
+        Remove-Item -LiteralPath (Join-Path $stateLocal 'server.pid') -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath (Join-Path $stateLocal 'server-wrapper.pid') -Force -ErrorAction SilentlyContinue
         return $true
     }
     Write-Host '未找到本工具启动的 DSH 服务（可能不是本工具启动，跳过自动停止）。' -ForegroundColor Yellow
@@ -206,6 +284,8 @@ if ($listening.Count -gt 0) {
 
 Write-Host ''
 Clear-Logs
+Clear-ProjectBackups
+Clear-StaleRestartTask
 Write-Host '[2/3] 清理 state…'
 try { Remove-Tree (Assert-SafeDeleteTarget $stateLocal) }
 catch { Write-Host ("  [拒绝] " + $_.Exception.Message) -ForegroundColor Red }
@@ -213,5 +293,10 @@ Write-Host '[3/3] 清理浏览器用户数据（profile）…'
 try { Remove-Tree (Assert-SafeDeleteTarget $profileDir) }
 catch { Write-Host ("  [拒绝] " + $_.Exception.Message) -ForegroundColor Red }
 Clear-TokenState
+if ($opTaken -and $opMutex) {
+    try { $opMutex.ReleaseMutex() } catch { }
+    try { $opMutex.Dispose() } catch { }
+    $opMutex = $null
+}
 Write-Host ''
 Write-Host '清理完成。重新双击「DSH 浏览器」会生成新的令牌地址并重新认证，功能不受影响。' -ForegroundColor Green

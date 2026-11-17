@@ -10,8 +10,8 @@ if ([string]::IsNullOrWhiteSpace($OutputPath)) {
     $OutputPath = Join-Path $parent ('DSH浏览器-分享包-{0}.zip' -f (Get-Date -Format 'yyyyMMdd-HHmm'))
 }
 
-$excludeDirs = @('profile', 'logs', 'state', '.git', '.vs', '.idea')
-$excludeFilePatterns = @('*.lnk', '*.zip', '*.log', '*.tmp', 'DSH-custom.ico', 'README.txt', 'desktop.ini', 'Thumbs.db')
+$excludeDirs = @('profile', 'logs', 'state', 'workspace', '.git', '.vs', '.idea', 'shortcut-backup', 'backup', 'tests', 'review', 'node_modules')
+$excludeFilePatterns = @('*.lnk*', '*.zip', '*.log', '*.tmp', '*.bak', '*.bak-*', '本地修改记录-*.md', 'DSH-custom.ico', 'README.txt', 'desktop.ini', 'Thumbs.db')
 $stage = Join-Path $env:TEMP ('dsh-share-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Force -Path $stage | Out-Null
 $copied = @()
@@ -26,7 +26,10 @@ try {
         $copied += $_.Name
     }
     Remove-Item -LiteralPath $OutputPath -Force -ErrorAction SilentlyContinue
-    Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $OutputPath -Force
+    # 用 .NET 打包，确保 .gitignore/.gitattributes 这类点文件也被收进 ZIP；
+    # Compress-Archive 的 "*" 通配在部分环境下会漏掉隐藏文件。
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    [System.IO.Compression.ZipFile]::CreateFromDirectory($stage, $OutputPath, [System.IO.Compression.CompressionLevel]::Optimal, $false)
 } finally {
     Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue
 }
@@ -41,7 +44,7 @@ Write-Host ("大小：{0:N1} KB" -f ($zip.Length / 1KB))
 Write-Host ("SHA256：{0}" -f $hash)
 Write-Host ("包含：{0} 个顶层条目" -f $copied.Count)
 Write-Host ''
-Write-Host '已自动排除：profile\（个人浏览数据）、logs\、state\、本机快捷方式 .lnk' -ForegroundColor Green
+Write-Host '已自动排除：profile\（个人浏览数据）、logs\、state\、本机快捷方式 .lnk*、*.bak-* 备份、本地修改记录 md、shortcut-backup\、backup\、tests\' -ForegroundColor Green
 Write-Host ''
 Write-Host '重要提示：' -ForegroundColor Yellow
 Write-Host '  1) 分享包不包含 DSH 本体（Node.js / dsh CLI / dsh-launcher / DSH_HOME 数据）。'

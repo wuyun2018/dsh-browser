@@ -139,6 +139,9 @@ dsh-browser/
 ├─ .gitignore / .gitattributes
 ├─ config.ini                配置文件
 ├─ launcher.ps1              主逻辑：启动服务 + 打开 Edge 应用窗口 + 挂 watchdog
+├─ common.ps1                共享函数库：配置读取 / 令牌脱敏 / 端口与状态探测（launcher 与 restart 共用）
+├─ launcher-hidden.vbs       零窗口入口（wscript → launcher.ps1，桌面快捷方式用它）
+├─ restart-dsh.ps1           一键重启引擎：完全停止 DSH（服务树/窗口/watchdog）后重新拉起，并做启动自检
 ├─ stop.ps1                  手动停止 DSH 服务
 ├─ cleanup-privacy.ps1       隐私数据清理逻辑
 ├─ repair-shortcuts.ps1      快捷方式重建逻辑
@@ -151,6 +154,8 @@ dsh-browser/
 ├─ DSH.ico                   同图标兼容副本
 ├─ DSH 浏览器.cmd            主入口
 ├─ DSH 浏览器（调试）.cmd    调试入口（显示控制台与错误）
+├─ 重启 DSH.vbs              一键重启（无控制台窗口，带进度提示；桌面「DSH 重启」快捷方式的目标）
+├─ 重启 DSH（带日志）.cmd    一键重启（显示进度；失败时停住并给出日志路径）
 ├─ 检查依赖.cmd              环境自检
 ├─ 检查状态.cmd              查看端口/服务/浏览器解析结果
 ├─ 停止 DSH 服务.cmd         停止 DSH 服务
@@ -170,10 +175,13 @@ dsh-browser/
 |---|---|---|
 | `DSH 浏览器.cmd` | 主入口 | 隐藏窗口启动，推荐日常使用 |
 | `DSH 浏览器（调试）.cmd` | 调试入口 | 显示控制台输出与错误信息 |
+| `重启 DSH.vbs` | 一键重启（无控制台窗口） | 停掉服务树 + 本工具窗口 + watchdog 后重新拉起；桌面快捷方式「DSH 重启」指向它；重启期间显示置顶进度窗（`restart-dsh.ps1 -Progress`） |
+| `重启 DSH（带日志）.cmd` | 一键重启（可见） | 同上，但在控制台里显示每一步；失败会停住并打印退出码与 `logs\restart.log` 路径；加 `-DryRun` 只预览计划 |
+| `restart-dsh.ps1` | 重启引擎 | 支持 `-DryRun` 预览、`-Quiet` 静默、`-NoPopup` 不弹窗、`-BootTimeoutSec`/`-StopTimeoutSec`；在 DSH 终端里运行时会自动脱钩
 | `检查状态.cmd` | 状态检查 | 打印 root/端口/浏览器/启动脚本/node/dsh/工作目录 |
 | `检查依赖.cmd` | 环境自检 | 换机/分享后先跑；逐项 PASS/WARN/FAIL |
 | `停止 DSH 服务.cmd` | 停止服务 | 手动停止 DSH 服务（含确认提示） |
-| `清理隐私数据.cmd` | 隐私清理 | `[1]` 仅清日志；`[2]` 完整清理（会关闭窗口并停服务） |
+| `清理隐私数据.cmd` | 隐私清理 | `[1]` 仅清日志；`[2]` 完整清理（会关闭窗口并停服务）；脚本支持 `-DryRun` 预览、`-Yes` 非交互完整清理 |
 | `修复快捷方式.cmd` | 重建快捷方式 | 移动目录后必须执行 |
 | `切换 REA MCP.cmd` | REA MCP 开关 | 启用/禁用反向工程工具服务（需重启 DSH 服务） |
 | `打包分享.cmd` | 生成分享 ZIP | 自动排除 `profile/logs/state/*.lnk`，输出到项目上一级目录 |
@@ -188,6 +196,7 @@ dsh-browser/
 | `BROWSER_PATH` | 空 | 浏览器 exe；留空自动用系统 Edge；可指定任意 Chromium 内核浏览器（支持相对路径） |
 | `EXTRA_FLAGS` | 空 | 追加的浏览器启动参数（空格分隔） |
 | `STOP_SERVER_ON_CLOSE` | `1` | 关闭窗口时是否停止 DSH 服务：`1` 停止（默认），`0` 保留（共享服务时用） |
+| `STOP_REUSED_SERVER` | `0` | 复用“本来就在运行”的 DSH 服务时，关闭窗口是否也停止它：`0` 不停止（默认，避免误停别的入口正在用的服务），`1` 停止（旧行为） |
 | `WINDOW_SIZE` | `1280,900` | 浏览器窗口大小 |
 | `PROFILE_DIR` | 空 | 浏览器用户数据目录；留空 = 本目录下 `profile\` |
 | `LAUNCHER_SCRIPT` | 空 | `start-dsh-web.mjs` 路径；留空自动探测（config → 项目同级 `..\dsh-launcher` → 默认安装位置） |
@@ -195,22 +204,23 @@ dsh-browser/
 | `DSH_CMD` | 空 | dsh 命令路径；留空使用 `%APPDATA%\npm\dsh.cmd` |
 | `WORKSPACE` | 空 | DSH 工作目录；留空 = `%USERPROFILE%\Documents\deepseek-harness\default-workspace`（不存在会自动创建） |
 | `STATE_DIR` | 空 | 令牌状态目录；留空 = `%LOCALAPPDATA%\dsh-web` |
+| `START_TIMEOUT_SEC` | `240` | 启动预算：从拉起服务到拿到带令牌 URL 的最长等待秒数（小于 30 会被忽略并回落到 240）。冷启动慢的机器（插件多、杀毒扫描、内存紧张）可调到 260 左右；**不建议超过 260**，因为启动器单实例锁最多等 270 秒，超过后第二个启动器可能提前进入。`restart-dsh.ps1` 的 `-BootTimeoutSec`（默认 300 秒）可以在启动器退出后继续等前端就绪 |
 
 ---
 
 ## 常见问题 FAQ
 
 **Q1：打开后页面提示需要认证 / 401？**
-说明后台 DSH 服务不是本工具启动的，或令牌已过期。先双击「停止 DSH 服务.cmd」停掉旧服务，再重新打开「DSH 浏览器」。
+通常是后台 DSH 宿主被设置页的“重启”换过进程，旧令牌失效。新版本会自动尝试从重启日志恢复令牌；恢复失败时会**精确停掉当前监听者并重新启动服务**以生成新令牌，不再打开一个 401 基础地址。若仍失败，看 `logs\launcher.log` 的「没有可用令牌 URL」一段；也可双击「停止 DSH 服务.cmd」后重开。
 
 **Q2：双击没反应？**
-用「DSH 浏览器（调试）.cmd」启动查看错误；启动日志在 `logs\launcher.log`。若 DSH 服务本身启动失败，请直接运行 `dsh-launcher` 目录下的「启动 DSH Web.cmd」查看完整错误（本工具为避免令牌落盘，丢弃了服务 stdout）。
+用「DSH 浏览器（调试）.cmd」启动查看错误；启动日志在 `logs\launcher.log`（一键重启的日志是 `logs\restart.log`）。若 DSH 服务本身启动失败，请直接运行 `dsh-launcher` 目录下的「启动 DSH Web.cmd」查看完整错误（本工具为避免令牌落盘，丢弃了服务 stdout）。
 
 **Q3：任务管理器里为什么显示 `msedge.exe`？**
 本项目复用系统 Edge 的 Chromium 内核，不是独立浏览器。专用窗口使用独立 `--user-data-dir`，与你日常 Edge 互不影响；可查看命令行中的 `--app=...` 与 `--user-data-dir=...\profile` 区分。
 
 **Q4：关闭窗口后 DSH 服务会停止吗？**
-默认会（`STOP_SERVER_ON_CLOSE=1`，由 watchdog 执行）。想保留服务（例如多个客户端共享）改为 `0`。
+分两种情况：服务是本次启动器启动的，默认会停止（`STOP_SERVER_ON_CLOSE=1`，由 watchdog 执行）；服务是复用的已有实例，默认**不停止**（`STOP_REUSED_SERVER=0`），避免把另一个入口/其它客户端正在用的服务关掉。想改变行为分别改这两个键。
 
 **Q5：移动文件夹后快捷方式失效？**
 快捷方式记录的是绝对路径。移动后在新位置双击「修复快捷方式.cmd」重建即可；再用「检查状态.cmd」核对路径。
@@ -232,6 +242,23 @@ REA 是一套可选的反向工程工具服务（二进制/.NET/Electron/APK/固
 
 **Q10：为什么 `watchdog.exe` 没有窗口/看不到？**
 它是隐藏运行的轻量监视器（约 12MB 内存），只负责"浏览器窗口关闭 → 停止 DSH 服务"，任务管理器里能看到但无界面，属正常现象。
+
+**Q11：启动很慢，或者弹「DSH 启动失败（退出码 1）」，但窗口其实能打开？**
+先分清"真失败"和"预算到了"。`launcher.ps1` 有一个启动预算 `START_TIMEOUT_SEC`（默认 240 秒）：预算内没拿到带令牌 URL 就报失败。
+本机 2026-11-05 的真实事故：冷启动用了 **164.8 秒**，而当时预算是硬编码 120 秒 → 启动器先报失败，服务在 40 秒后才就绪，用户以为坏了。
+处理：
+- 看 `logs\launcher.log` 里「服务启动预算 N 秒」到「DSH 服务就绪」的间隔，接近预算就调大 `START_TIMEOUT_SEC`（最多建议 260，别超过启动器 270 秒的单实例锁）；
+- 用「重启 DSH」时更宽容：启动器按自己的预算退出、但端口已在监听时，`restart-dsh.ps1` 会继续等到 `-BootTimeoutSec`（默认 300 秒），服务就绪后再补一次启动器把窗口打开——所以一键重启报的"失败"比启动器自己的弹窗可信；
+- 启动器的退出码：**0** = 成功；**1** = 真失败（已清理本次启动的进程）；**2** = 另一个启动/重启操作正在进行（仅 `-StrictExitCode`）；**4** = 服务进程活着且端口已在监听、只是前端页面在预算内没就绪（`BOOT_PENDING`，**故意不杀进程**，服务留在后台继续启动，稍后重开窗口即可）；
+- `restart-dsh.ps1 -StrictExitCode` 另外用 **3** 表示 DryRun、**5** 表示已脱钩交给后台；不加 `-StrictExitCode` 时仍沿用旧行为返回 0；
+- 日志里出现 `dsh: warning: N entries did not activate` 说明有插件没激活（功能会缺一块），一键重启结束时会把这类告警打出来。
+
+**Q12：一键重启后，输入框左下角的「修改权限」不见了，设置里显示「不可用」？**
+这是 DSH 侧的插件组合问题，不是本工具的 bug：`dsh-permission-presets` 要求 `sandbox-policy.mode` 与 `approval.policy` 的组合能匹配到某个预设，`danger-full-access + ask` 匹配不到任何预设 → 插件构造时抛错 → `permissionPresets` 服务不存在 → 客户端不渲染该控件（会话区控件直接消失），连带 `auto-review` 一直 pending。
+修法（改 profile 的 `cordis.patch.yml`，两者配套）：
+- `sandbox-policy.mode: danger-full-access` + `approval.policy: never`；或
+- `sandbox-policy.mode: workspace-write` + `approval.policy: ask`。
+注意 `cordis.patch.yml` 的 `config:` 是**整块替换**而不是深合并：不要用它去只改 `permission.defaultPreset`，那会把只读/工作区两个预设定整段覆盖掉。排查时看宿主 stderr 里的 `permission (...): Error: permission: composed sandbox and approval defaults match no preset` 即可确诊。
 
 ---
 
@@ -271,6 +298,7 @@ REA 是一套可选的反向工程工具服务（二进制/.NET/Electron/APK/固
   - `.cmd`：**CRLF**（含中文的 .cmd 若用 LF 会被 cmd.exe 解析错乱）；
   - `config.ini`：UTF-8 无 BOM + LF。
 - 调试时可用「DSH 浏览器（调试）.cmd」或 `launcher.ps1 -Check`；测试请使用独立端口与临时 profile，避免影响正在使用的服务。
+- **共享函数库 `common.ps1`**：`launcher.ps1` 与 `restart-dsh.ps1` 都在开头 `. (Join-Path $script:Root 'common.ps1')` 引入它（缺文件会直接报错退出）。里面只放**纯函数与只读探测**（配置读取、`Mask-Secrets`、`Get-ListenerPid`、`Test-TokenUrl` 等），并要求调用前 `$script:Root` 已设置；需要两个脚本共用的新逻辑请加在这里，不要在两处各抄一份。
 
 ---
 

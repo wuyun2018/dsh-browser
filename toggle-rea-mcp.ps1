@@ -87,17 +87,19 @@ function Restart-DshService {
         if (-not (Test-PortListening $port)) { $down = $true; break }
     }
     if (-not $down) {
-        # 兜底：用本工具记录的 server.pid 停止服务
-        $pidFile = Join-Path $root 'state\server.pid'
-        if (Test-Path -LiteralPath $pidFile) {
+        # 兜底：优先停 wrapper 整棵树（server.pid 现在是真实监听者，只杀它可能留下 wrapper）
+        foreach ($pidName in @('server-wrapper.pid', 'server.pid')) {
+            $pidFile = Join-Path $root ('state\' + $pidName)
+            if (-not (Test-Path -LiteralPath $pidFile)) { continue }
             $serverPid = 0
-            [int]::TryParse((Get-Content -LiteralPath $pidFile -Raw).Trim(), [ref]$serverPid) | Out-Null
+            try { [int]::TryParse((Get-Content -LiteralPath $pidFile -Raw).Trim(), [ref]$serverPid) | Out-Null } catch { }
             if ($serverPid -gt 0) { & taskkill.exe /PID $serverPid /T /F 2>$null | Out-Null }
             $waitDeadline = (Get-Date).AddSeconds(8)
             while ((Get-Date) -lt $waitDeadline) {
                 Start-Sleep -Milliseconds 500
                 if (-not (Test-PortListening $port)) { $down = $true; break }
             }
+            if ($down) { break }
         }
     }
     if (-not $down) {

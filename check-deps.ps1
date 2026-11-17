@@ -41,9 +41,15 @@ if ($psv.Major -ge 5) { Add-Result 'Windows PowerShell' 'PASS' ("版本 {0}（Wi
 else { Add-Result 'Windows PowerShell' 'FAIL' ("版本 {0} 过低" -f $psv) '升级到 Windows PowerShell 5.1+（Win10/11 默认自带）' }
 
 # ---- 2. 项目文件 ----
-foreach ($f in @('launcher.ps1', 'config.ini', 'watchdog.exe', 'DSH-favicon.ico', 'README.md', 'LICENSE')) {
+foreach ($f in @('launcher.ps1', 'common.ps1', 'launcher-hidden.vbs', 'config.ini', 'watchdog.exe', 'DSH-favicon.ico', 'README.md', 'LICENSE')) {
     if (Test-Path -LiteralPath (Join-Path $root $f)) { Add-Result ("项目文件 {0}" -f $f) 'PASS' '' }
     else { Add-Result ("项目文件 {0}" -f $f) 'FAIL' '文件缺失，请重新解压完整的分享包' '重新解压分享包' }
+}
+
+# ---- 2b. 一键重启（可选组件，缺失只 WARN）----
+foreach ($f in @('restart-dsh.ps1', '重启 DSH.vbs', '重启 DSH（带日志）.cmd')) {
+    if (Test-Path -LiteralPath (Join-Path $root $f)) { Add-Result ("一键重启 {0}" -f $f) 'PASS' '' }
+    else { Add-Result ("一键重启 {0}" -f $f) 'WARN' '可选组件缺失：一键重启不可用（不影响正常启动）' '从完整版本复制该文件，或重新解压分享包' }
 }
 
 # ---- 3. 浏览器 ----
@@ -109,7 +115,9 @@ if ($explicit) {
     else { $launcherScript = [System.IO.Path]::Combine($root, $explicit) }
 }
 $sibling = [System.IO.Path]::Combine((Split-Path -Parent $root), 'dsh-launcher', 'start-dsh-web.mjs')
-$defaultPath = [System.IO.Path]::Combine('D:\tools\dsh-launcher', 'start-dsh-web.mjs')
+$dshHomeForLauncher = $env:DSH_HOME
+if ([string]::IsNullOrWhiteSpace($dshHomeForLauncher)) { $dshHomeForLauncher = Join-Path $env:USERPROFILE '.dsh' }
+$defaultPath = [System.IO.Path]::Combine($dshHomeForLauncher, 'tools\dsh-launcher', 'start-dsh-web.mjs')
 $candidates = @($launcherScript, $sibling, $defaultPath) | Where-Object { $_ }
 $foundScript = $candidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
 if ($foundScript) {
@@ -148,21 +156,54 @@ if ($listening.Count -eq 0) {
 }
 
 # ---- 9. 快捷方式 ----
+# 不硬编码快捷方式名称：用户可能把入口命名为 DeepSeek.lnk / DSH 浏览器.lnk，
+# 只要目标参数确实指向本项目的 launcher.ps1 或 launcher-hidden.vbs 就算有效。
 $ws = New-Object -ComObject WScript.Shell
-$desktopLnk = Join-Path ([Environment]::GetFolderPath('Desktop')) 'DSH 浏览器.lnk'
-$menuLnk = Join-Path ([Environment]::GetFolderPath('Programs')) 'DSH 浏览器.lnk'
+function Test-LauncherShortcut {
+    param([string]$Path)
+    if (-not (Test-Path -LiteralPath $Path)) { return $false }
+    try {
+        $sh = $ws.CreateShortcut($Path)
+        $target = [string]$sh.TargetPath
+        $argText = [string]$sh.Arguments
+        $hay = $target + ' ' + $argText
+        if ($hay.IndexOf($root, [System.StringComparison]::OrdinalIgnoreCase) -lt 0) { return $false }
+        return ($hay -match '(?i)launcher\.ps1|launcher-hidden\.vbs')
+    } catch { return $false }
+}
+function Find-LauncherShortcut {
+    param([string]$Dir)
+    if (-not (Test-Path -LiteralPath $Dir)) { return $null }
+    foreach ($f in @(Get-ChildItem -LiteralPath $Dir -Filter '*.lnk' -File -Recurse -ErrorAction SilentlyContinue)) {
+        if (Test-LauncherShortcut $f.FullName) { return $f.FullName }
+    }
+    return $null
+}
+$desktopDir = [Environment]::GetFolderPath('Desktop')
+$menuDir = [Environment]::GetFolderPath('Programs')
+$desktopFound = Find-LauncherShortcut $desktopDir
+$menuFound = Find-LauncherShortcut $menuDir
 $lnkProblems = @()
-foreach ($lnk in @($desktopLnk, $menuLnk)) {
-    if (Test-Path -LiteralPath $lnk) {
-        $sh = $ws.CreateShortcut($lnk)
-        $expectedArg = '*-File "' + (Join-Path $root 'launcher.ps1') + '"*'
-        if (-not ($sh.Arguments -like $expectedArg)) { $lnkProblems += $lnk }
-    } else { $lnkProblems += $lnk }
+if (-not $desktopFound) { $lnkProblems += '桌面' }
+if (-not $menuFound) { $lnkProblems += '开始菜单' }
+if ($lnkProblems.Count -eq 0) {
+    Add-Result '桌面 / 开始菜单快捷方式' 'PASS' ($desktopFound + '；' + $menuFound)
+} else {
+    Add-Result '桌面 / 开始菜单快捷方式' 'WARN' ('未找到有效入口：' + ($lnkProblems -join '、')) '双击「修复快捷方式.cmd」重建（移动目录后必须做）'
 }
-if ($lnkProblems.Count -eq 0) { Add-Result '桌面 / 开始菜单快捷方式' 'PASS' '已存在且指向本目录' }
-else {
-    Add-Result '桌面 / 开始菜单快捷方式' 'WARN' ('需要重建：' + ($lnkProblems -join '、')) '双击「修复快捷方式.cmd」重建（移动目录后必须做）'
-}
+
+# ---- 9b. 一键重启快捷方式（可选）----
+$restartVbs = Join-Path $root '重启 DSH.vbs'
+$restartLnk = Join-Path ([Environment]::GetFolderPath('Desktop')) 'DSH 重启.lnk'
+if (Test-Path -LiteralPath $restartVbs) {
+    if (-not (Test-Path -LiteralPath $restartLnk)) {
+        Add-Result '一键重启快捷方式（可选）' 'WARN' '桌面没有「DSH 重启」快捷方式' '双击「修复快捷方式.cmd」创建'
+    } else {
+        $shR = $ws.CreateShortcut($restartLnk)
+        if ($shR.TargetPath -like '*wscript.exe' -and $shR.Arguments -like '*重启 DSH.vbs*') { Add-Result '一键重启快捷方式（可选）' 'PASS' '指向本目录的「重启 DSH.vbs」' }
+        else { Add-Result '一键重启快捷方式（可选）' 'WARN' '快捷方式指向了别处' '双击「修复快捷方式.cmd」重建' }
+    }
+} else { Add-Result '一键重启快捷方式（可选）' 'WARN' '本目录没有「重启 DSH.vbs」' '从完整版本复制该文件' }
 
 # ---- 10. 运行期数据 ----
 $dirty = @()
