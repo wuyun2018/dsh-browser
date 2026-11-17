@@ -481,7 +481,12 @@ function Start-DetachedRestart {
     $null = & schtasks.exe /create /tn $taskName /tr $tr /sc once /st 23:58 /f 2>&1
     if ($LASTEXITCODE -ne 0) { return $null }
     $null = & schtasks.exe /run /tn $taskName 2>&1
-    if ($LASTEXITCODE -ne 0) { return $null }
+    if ($LASTEXITCODE -ne 0) {
+        # /run 失败时任务还挂着 23:58 的触发时间，必须立刻删掉，
+        # 否则可能在深夜意外启动一次重启。
+        $null = & schtasks.exe /delete /tn $taskName /f 2>&1
+        return $null
+    }
     return $taskName
 }
 
@@ -557,7 +562,16 @@ function Clear-StaleState {
     }
     if ($StateDir) {
         $lockFile = Join-Path $StateDir 'launcher.lock'
-        if (Test-Path -LiteralPath $lockFile) {
+        # 和 url.txt 一样，launcher.lock 也必须受白名单约束；config.ini 的
+        # STATE_DIR 误配成其它目录时，不能顺手删掉别人的锁文件。
+        $fullLock = [System.IO.Path]::GetFullPath($lockFile).TrimEnd('\')
+        $lockSafe = $false
+        foreach ($a in $allowed) {
+            if ($fullLock.StartsWith($a + '\', [System.StringComparison]::OrdinalIgnoreCase)) { $lockSafe = $true; break }
+        }
+        if (-not $lockSafe) {
+            Write-RestartLog ('拒绝删除不在白名单内的锁文件：' + $fullLock)
+        } elseif (Test-Path -LiteralPath $lockFile) {
             $lockPid = 0
             try {
                 $info = Get-Content -LiteralPath $lockFile -Raw | ConvertFrom-Json

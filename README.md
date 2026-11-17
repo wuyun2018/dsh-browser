@@ -1,11 +1,11 @@
-# DSH 浏览器（dsh-browser）
+﻿# DSH 浏览器（dsh-browser）
 
 > 为 **DeepSeek Harness（DSH）Web 端**打造的轻量 Windows 浏览器外壳：一键启动/复用 DSH 服务，用系统 Edge 的应用窗口打开 DSH Web，关闭窗口时自动停止服务。
 
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%20%2F%2011-0078D4?logo=windows)
 ![PowerShell](https://img.shields.io/badge/PowerShell-5.1%2B-5391FE?logo=powershell)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Size](https://img.shields.io/badge/package-~100%20KB-brightgreen)
+![Size](https://img.shields.io/badge/package-~103%20KB-brightgreen)
 
 简体中文 | [English Summary](#english-summary)
 
@@ -178,7 +178,7 @@ dsh-browser/
 | `清理隐私数据.cmd` | 隐私清理 | `[1]` 仅清日志；`[2]` 完整清理（会关闭窗口并停服务）；脚本支持 `-DryRun` 预览、`-Yes` 非交互完整清理 |
 | `修复快捷方式.cmd` | 重建快捷方式 | 移动目录后必须执行 |
 
-> 本发布包只包含启动器核心功能。`切换 REA MCP.cmd` 与 `打包分享.cmd` 是使用者后来添加的本地扩展，不属于本仓库的发布边界。
+> 本发布包只包含启动器核心功能；REA MCP 与分享打包属于使用者后来添加的本地扩展，不属于本仓库的发布边界。
 
 ---
 
@@ -259,7 +259,7 @@ REA MCP 与分享包生成是后期使用者额外添加的本地扩展，不属
 ## 隐私与安全
 
 - 本工具**不收集、不上传**任何数据；
-- 运行期会生成 `profile\`（浏览器用户数据，可能包含 Microsoft 账号登录信息、DSH 会话 Cookie、历史等）、`logs\`（启动日志，已脱敏）、`state\`（PID/标志）；
+- 运行期会生成 `profile\`（浏览器用户数据，可能包含 Microsoft 账号登录信息、DSH 会话 Cookie、历史等）、`logs\`（启动日志，令牌已脱敏，但可能包含本机路径）、`state\`（PID/标志；可能包含明文 `url.txt` 令牌文件）；
 - 发布/上传前请先双击「清理隐私数据.cmd」选 `[2]` 完整清理，或直接删除这三个目录；
 - 发布包不包含打包/REA 扩展；需要自行分享时请手动压缩，并排除上述目录、`*.lnk` 与旧图标；
 - DSH 令牌只在本地 `127.0.0.1` 使用；日志中的令牌一律打码为 `?token=***`；服务 stdout（含令牌）直接丢弃不落盘。注意：Edge 的 `--app=<令牌 URL>` 命令行在 Windows 进程列表中可见，这是应用模式本身的限制，工具无法完全隐藏。
@@ -292,7 +292,7 @@ REA MCP 与分享包生成是后期使用者额外添加的本地扩展，不属
   - `.cmd`：**CRLF**（含中文的 .cmd 若用 LF 会被 cmd.exe 解析错乱）；
   - `config.ini`：UTF-8 无 BOM + LF。
 - 调试时可用「DSH 浏览器（调试）.cmd」或 `launcher.ps1 -Check`；测试请使用独立端口与临时 profile，避免影响正在使用的服务。
-- **共享函数库 `common.ps1`**：`launcher.ps1` 与 `restart-dsh.ps1` 都在开头 `. (Join-Path $script:Root 'common.ps1')` 引入它（缺文件会直接报错退出）。里面只放**纯函数与只读探测**（配置读取、`Mask-Secrets`、`Get-ListenerPid`、`Test-TokenUrl` 等），并要求调用前 `$script:Root` 已设置；需要两个脚本共用的新逻辑请加在这里，不要在两处各抄一份。
+- **共享函数库 `common.ps1`**：`launcher.ps1` 与 `restart-dsh.ps1` 都在开头 `. (Join-Path $script:Root 'common.ps1')` 引入它（缺文件会直接报错退出）。里面只放**纯函数与只读探测**（配置读取、`Mask-Secrets`、`Get-ListenerPid`、`Test-TokenUrl` 等），并要求调用前 `$script:Root` 已设置；需要两个脚本共用的新逻辑请加在这里，不要在两处各抄一份。`stop.ps1` 与 `cleanup-privacy.ps1` 为了能独立运行不依赖 common，各自保留了一份 DSH 进程识别函数；修改识别规则时三处要同步。
 
 ---
 
